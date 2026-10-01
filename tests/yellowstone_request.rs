@@ -18,10 +18,7 @@ fn account_request_is_processed_and_exactly_filtered() {
     };
 
     let request = build_subscribe_request(&config);
-    assert_eq!(
-        request.commitment,
-        Some(CommitmentLevel::Processed as i32)
-    );
+    assert_eq!(request.commitment, Some(CommitmentLevel::Processed as i32));
 
     let filter = request.accounts.get("hft").unwrap();
     assert_eq!(filter.account, config.filter.accounts);
