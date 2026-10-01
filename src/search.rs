@@ -1,8 +1,13 @@
+use std::sync::Arc;
+
+use smallvec::SmallVec;
+use thiserror::Error;
+
 use crate::{
     graph::{Cycle, Edge},
     quote::{CashbackLocation, Quote, QuoteError},
     state::{PoolCell, PoolState},
-    types::Direction,
+    types::{Direction, PoolId, StateVersion},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,6 +19,28 @@ pub struct RouteResult {
     pub unconverted_cashback_legs: u8,
     pub gross_profit: i128,
     pub effective_profit: i128,
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum SearchError {
+    #[error(transparent)]
+    Quote(#[from] QuoteError),
+    #[error("cycle references missing pool {0}")]
+    MissingPool(PoolId),
+    #[error(
+        "cycle snapshot slot skew exceeds limit: min={min_slot} max={max_slot} allowed={max_allowed}"
+    )]
+    SlotSkew {
+        min_slot: u64,
+        max_slot: u64,
+        max_allowed: u64,
+    },
+    #[error("pool {pool} changed during quote")]
+    StaleGeneration {
+        pool: PoolId,
+        expected: StateVersion,
+        actual: StateVersion,
+    },
 }
 
 #[inline]
@@ -74,9 +101,9 @@ fn cashback_token(edge: &Edge, location: CashbackLocation) -> Option<u32> {
     }
 }
 
-pub fn quote_cycle(
+fn quote_cycle_from_snapshots(
     cycle: &Cycle,
-    pools: &[PoolCell],
+    snapshots: &[Arc<PoolState>],
     initial_amount: u64,
 ) -> Result<RouteResult, QuoteError> {
     let mut amount = initial_amount;
@@ -84,8 +111,7 @@ pub fn quote_cycle(
     let mut base_cashback = 0u64;
     let mut unconverted_cashback_legs = 0u8;
 
-    for edge in cycle.edge_iter() {
-        let state = pools[edge.pool as usize].state.load();
+    for (edge, state) in cycle.edge_iter().zip(snapshots.iter()) {
         let q = quote_edge(state.as_ref(), edge.direction, amount)?;
 
         if q.cashback != 0 {
@@ -116,6 +142,83 @@ pub fn quote_cycle(
         gross_profit,
         effective_profit,
     })
+}
+
+fn load_cycle_snapshots(
+    cycle: &Cycle,
+    pools: &[PoolCell],
+    max_slot_skew: u64,
+) -> Result<SmallVec<[Arc<PoolState>; 3]>, SearchError> {
+    let mut snapshots = SmallVec::<[Arc<PoolState>; 3]>::new();
+    let mut min_slot = u64::MAX;
+    let mut max_slot = 0u64;
+
+    for edge in cycle.edge_iter() {
+        let pool = pools
+            .get(edge.pool as usize)
+            .ok_or(SearchError::MissingPool(edge.pool))?;
+        let state = pool.state.load_full();
+        let slot = state.version().slot;
+
+        min_slot = min_slot.min(slot);
+        max_slot = max_slot.max(slot);
+        snapshots.push(state);
+    }
+
+    if !snapshots.is_empty() && max_slot.saturating_sub(min_slot) > max_slot_skew {
+        return Err(SearchError::SlotSkew {
+            min_slot,
+            max_slot,
+            max_allowed: max_slot_skew,
+        });
+    }
+
+    Ok(snapshots)
+}
+
+pub fn quote_cycle(
+    cycle: &Cycle,
+    pools: &[PoolCell],
+    initial_amount: u64,
+) -> Result<RouteResult, QuoteError> {
+    let mut snapshots = SmallVec::<[Arc<PoolState>; 3]>::new();
+
+    for edge in cycle.edge_iter() {
+        let state = pools[edge.pool as usize].state.load_full();
+        snapshots.push(state);
+    }
+
+    quote_cycle_from_snapshots(cycle, &snapshots, initial_amount)
+}
+
+/// Quote a cycle optimistically and reject it if any participating pool changes
+/// before the calculation finishes.
+pub fn quote_cycle_consistent(
+    cycle: &Cycle,
+    pools: &[PoolCell],
+    initial_amount: u64,
+    max_slot_skew: u64,
+) -> Result<RouteResult, SearchError> {
+    let snapshots = load_cycle_snapshots(cycle, pools, max_slot_skew)?;
+    let result = quote_cycle_from_snapshots(cycle, &snapshots, initial_amount)?;
+
+    for (edge, captured) in cycle.edge_iter().zip(snapshots.iter()) {
+        let current = pools
+            .get(edge.pool as usize)
+            .ok_or(SearchError::MissingPool(edge.pool))?
+            .version();
+        let expected = captured.version();
+
+        if current != expected {
+            return Err(SearchError::StaleGeneration {
+                pool: edge.pool,
+                expected,
+                actual: current,
+            });
+        }
+    }
+
+    Ok(result)
 }
 
 pub fn marginal_candidate(

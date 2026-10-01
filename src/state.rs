@@ -55,6 +55,16 @@ pub enum PoolState {
     RaydiumCpmm(RaydiumCpmmState),
 }
 
+impl PoolState {
+    #[inline(always)]
+    pub fn version(&self) -> StateVersion {
+        match self {
+            PoolState::Pump(state) => state.version,
+            PoolState::RaydiumCpmm(state) => state.version,
+        }
+    }
+}
+
 pub struct PoolCell {
     pub state: ArcSwap<PoolState>,
 }
@@ -68,5 +78,10 @@ impl PoolCell {
 
     pub fn replace(&self, next: PoolState) {
         self.state.store(Arc::new(next));
+    }
+
+    #[inline(always)]
+    pub fn version(&self) -> StateVersion {
+        self.state.load().version()
     }
 }
