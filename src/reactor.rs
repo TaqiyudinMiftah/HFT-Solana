@@ -183,8 +183,8 @@ impl PaperStateReactor {
                     self.ready[pool_id as usize] = true;
                     outputs.push(ReactorOutput::PoolUpdated { pool_id, state });
                 }
-                Err(ReactorInvalidation::MissingDependency(_))
-                    if !self.ready[pool_id as usize] => {}
+                Err(ReactorInvalidation::MissingDependency(_)) if !self.ready[pool_id as usize] => {
+                }
                 Err(reason) => {
                     self.ready[pool_id as usize] = false;
                     outputs.push(ReactorOutput::PoolInvalidated { pool_id, reason });
