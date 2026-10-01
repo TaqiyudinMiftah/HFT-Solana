@@ -12,10 +12,32 @@ pub struct PumpFeesBps {
     pub creator_fee_bps: u64,
 }
 
+impl PumpFeesBps {
+    pub fn is_zero(self) -> bool {
+        self.lp_fee_bps == 0 && self.protocol_fee_bps == 0 && self.creator_fee_bps == 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PumpFeeTier {
     pub market_cap_threshold: u128,
     pub fees: PumpFeesBps,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PumpFeeConfig {
+    pub flat_fees: PumpFeesBps,
+    pub fee_tiers: Vec<PumpFeeTier>,
+    pub stable_fee_tiers: Vec<PumpFeeTier>,
+    pub exotic_flat_fees: PumpFeesBps,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PumpFeeSchedule {
+    NonCanonical,
+    CanonicalSolLike,
+    CanonicalStable,
+    CanonicalExotic,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +116,77 @@ pub fn calculate_fee_tier(
         .unwrap_or(first.fees))
 }
 
+pub fn fees_for_schedule(
+    config: &PumpFeeConfig,
+    schedule: PumpFeeSchedule,
+    market_cap: u128,
+) -> Result<PumpFeesBps, QuoteError> {
+    match schedule {
+        PumpFeeSchedule::NonCanonical => Ok(config.flat_fees),
+        PumpFeeSchedule::CanonicalSolLike => {
+            calculate_fee_tier(&config.fee_tiers, market_cap)
+        }
+        PumpFeeSchedule::CanonicalStable => {
+            let tiers = if config.stable_fee_tiers.is_empty() {
+                &config.fee_tiers
+            } else {
+                &config.stable_fee_tiers
+            };
+            calculate_fee_tier(tiers, market_cap)
+        }
+        PumpFeeSchedule::CanonicalExotic => {
+            if config.exotic_flat_fees.is_zero() {
+                Ok(config.flat_fees)
+            } else {
+                Ok(config.exotic_flat_fees)
+            }
+        }
+    }
+}
+
+/// Apply the pool-level creator-fee rules after selecting the schedule.
+///
+/// A pool without a coin creator pays no creator fee. A configurable nonzero
+/// pool override replaces only the creator rate; cashback pools do not use
+/// that override.
+pub fn apply_creator_fee_rules(
+    mut fees: PumpFeesBps,
+    has_coin_creator: bool,
+    creator_fee_configurable: bool,
+    pool_creator_fee_bps: u64,
+    cashback_coin: bool,
+) -> PumpFeesBps {
+    if !has_coin_creator {
+        fees.creator_fee_bps = 0;
+        return fees;
+    }
+
+    if creator_fee_configurable && pool_creator_fee_bps != 0 && !cashback_coin {
+        fees.creator_fee_bps = pool_creator_fee_bps;
+    }
+
+    fees
+}
+
+pub fn resolve_pool_fees(
+    config: &PumpFeeConfig,
+    schedule: PumpFeeSchedule,
+    market_cap: u128,
+    has_coin_creator: bool,
+    creator_fee_configurable: bool,
+    pool_creator_fee_bps: u64,
+    cashback_coin: bool,
+) -> Result<PumpFeesBps, QuoteError> {
+    let scheduled = fees_for_schedule(config, schedule, market_cap)?;
+    Ok(apply_creator_fee_rules(
+        scheduled,
+        has_coin_creator,
+        creator_fee_configurable,
+        pool_creator_fee_bps,
+        cashback_coin,
+    ))
+}
+
 /// Exact-quote buy: quote asset in, base asset out.
 ///
 /// Current PumpSwap pricing uses the effective quote reserve (raw + virtual).
@@ -116,11 +209,10 @@ pub fn buy_exact_quote_in(
     }
 
     let quote_reserve = effective_quote_reserve(raw_quote_reserve, virtual_quote_reserves)?;
-    let active_creator_bps = fees.creator_fee_bps;
     let total_fee_bps = fees
         .lp_fee_bps
         .checked_add(fees.protocol_fee_bps)
-        .and_then(|x| x.checked_add(active_creator_bps))
+        .and_then(|x| x.checked_add(fees.creator_fee_bps))
         .ok_or(QuoteError::InvalidFee)?;
 
     let denominator = BPS_DENOMINATOR
@@ -138,7 +230,7 @@ pub fn buy_exact_quote_in(
 
     let lp_fee = ceil_fee(effective_quote, fees.lp_fee_bps)?;
     let protocol_fee = ceil_fee(effective_quote, fees.protocol_fee_bps)?;
-    let creator_fee = ceil_fee(effective_quote, active_creator_bps)?;
+    let creator_fee = ceil_fee(effective_quote, fees.creator_fee_bps)?;
 
     let curve_input = effective_quote
         .checked_sub(1)

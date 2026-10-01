@@ -1,5 +1,6 @@
 pub mod mint;
 pub mod pump;
+pub mod pump_fee;
 pub mod raydium;
 pub mod token;
 
@@ -18,6 +19,16 @@ pub enum DecodeError {
 }
 
 #[inline]
+pub(crate) fn read_u32(data: &[u8], offset: usize) -> Result<u32, DecodeError> {
+    let bytes: [u8; 4] = data
+        .get(offset..offset + 4)
+        .ok_or(DecodeError::TooShort)?
+        .try_into()
+        .map_err(|_| DecodeError::TooShort)?;
+    Ok(u32::from_le_bytes(bytes))
+}
+
+#[inline]
 pub(crate) fn read_u64(data: &[u8], offset: usize) -> Result<u64, DecodeError> {
     let bytes: [u8; 8] = data
         .get(offset..offset + 8)
@@ -25,6 +36,16 @@ pub(crate) fn read_u64(data: &[u8], offset: usize) -> Result<u64, DecodeError> {
         .try_into()
         .map_err(|_| DecodeError::TooShort)?;
     Ok(u64::from_le_bytes(bytes))
+}
+
+#[inline]
+pub(crate) fn read_u128(data: &[u8], offset: usize) -> Result<u128, DecodeError> {
+    let bytes: [u8; 16] = data
+        .get(offset..offset + 16)
+        .ok_or(DecodeError::TooShort)?
+        .try_into()
+        .map_err(|_| DecodeError::TooShort)?;
+    Ok(u128::from_le_bytes(bytes))
 }
 
 #[inline]
