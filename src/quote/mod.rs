@@ -1,5 +1,6 @@
 pub mod cpmm;
 pub mod pump;
+pub mod pump_identity;
 pub mod raydium;
 
 use thiserror::Error;

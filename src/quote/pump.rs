@@ -150,7 +150,6 @@ pub fn fees_for_schedule(
 pub fn apply_creator_fee_rules(
     mut fees: PumpFeesBps,
     has_coin_creator: bool,
-    creator_fee_configurable: bool,
     pool_creator_fee_bps: u64,
     cashback_coin: bool,
 ) -> PumpFeesBps {
@@ -159,7 +158,11 @@ pub fn apply_creator_fee_rules(
         return fees;
     }
 
-    if creator_fee_configurable && pool_creator_fee_bps != 0 && !cashback_coin {
+    // A nonzero creator fee is persisted in the pool at creation/edit time.
+    // Zero means "use the schedule rate". The current global configurable flag
+    // is therefore not consulted during quoting; doing so could change
+    // historical pool economics retroactively.
+    if pool_creator_fee_bps != 0 && !cashback_coin {
         fees.creator_fee_bps = pool_creator_fee_bps;
     }
 
@@ -171,7 +174,6 @@ pub fn resolve_pool_fees(
     schedule: PumpFeeSchedule,
     market_cap: u128,
     has_coin_creator: bool,
-    creator_fee_configurable: bool,
     pool_creator_fee_bps: u64,
     cashback_coin: bool,
 ) -> Result<PumpFeesBps, QuoteError> {
@@ -179,7 +181,6 @@ pub fn resolve_pool_fees(
     Ok(apply_creator_fee_rules(
         scheduled,
         has_coin_creator,
-        creator_fee_configurable,
         pool_creator_fee_bps,
         cashback_coin,
     ))

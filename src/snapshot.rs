@@ -5,6 +5,7 @@ use crate::{
         mint::{inspect_mint, MintInspectError, MintQuoteInfo},
         pump::{build_quote_state as build_pump_quote_state, decode_pool as decode_pump_pool},
         pump_fee::decode_fee_config,
+        pump_global::{decode_pump_amm_global_config, decode_pump_global},
         raydium::{
             build_quote_state as build_raydium_quote_state, decode_amm_config, decode_pool_state,
         },
@@ -16,6 +17,7 @@ use crate::{
             effective_quote_reserve, pool_market_cap, resolve_pool_fees, PumpFeeSchedule,
             PumpFeesBps,
         },
+        pump_identity::classify_fee_schedule,
         QuoteError,
     },
     state::{PumpState, RaydiumCpmmState},
@@ -38,6 +40,19 @@ pub struct PumpSnapshotMeta {
     pub quote_mint: MintQuoteInfo,
     pub market_cap: u128,
     pub resolved_fees: PumpFeesBps,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PumpAutoSnapshotMeta {
+    pub base_mint: MintQuoteInfo,
+    pub quote_mint: MintQuoteInfo,
+    pub market_cap: u128,
+    pub fee_schedule: PumpFeeSchedule,
+    pub resolved_fees: PumpFeesBps,
+    pub pump_creator_fee_configurable: bool,
+    pub pump_max_configurable_creator_fee_bps: u64,
+    pub amm_creator_fee_configurable: bool,
+    pub amm_max_configurable_creator_fee_bps: u64,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -184,12 +199,12 @@ pub fn assemble_pump_state_from_config(
 
     let has_coin_creator = pool.coin_creator != [0u8; 32];
 
+    let _ = creator_fee_configurable;
     let resolved_fees = resolve_pool_fees(
         &fee_config.config,
         fee_schedule,
         market_cap,
         has_coin_creator,
-        creator_fee_configurable,
         pool.creator_fee_bps,
         pool.is_cashback_coin,
     )?;
@@ -209,6 +224,84 @@ pub fn assemble_pump_state_from_config(
             quote_mint,
             market_cap,
             resolved_fees,
+        },
+    ))
+}
+
+/// Assemble a PumpSwap quote state without caller-supplied fee classification.
+///
+/// Canonical-pool identity is derived from the Pump program PDA. Canonical
+/// quote assets are then classified as WSOL, Pump-Global-whitelisted stable,
+/// or exotic. Creator-fee global flags are returned as diagnostics only;
+/// quoting follows the creator fee already persisted in the pool.
+pub fn assemble_pump_state_auto(
+    pool_data: &[u8],
+    fee_config_data: &[u8],
+    pump_global_data: &[u8],
+    pump_amm_global_config_data: &[u8],
+    base_vault_data: &[u8],
+    quote_vault_data: &[u8],
+    base_mint_data: &[u8],
+    quote_mint_data: &[u8],
+    version: StateVersion,
+) -> Result<(PumpState, PumpAutoSnapshotMeta), SnapshotError> {
+    let pool = decode_pump_pool(pool_data)?;
+    let fee_config = decode_fee_config(fee_config_data)?;
+    let pump_global = decode_pump_global(pump_global_data)?;
+    let amm_global = decode_pump_amm_global_config(pump_amm_global_config_data)?;
+    let base_vault = decode_token_account_base(base_vault_data)?;
+    let quote_vault = decode_token_account_base(quote_vault_data)?;
+    let (base_mint, quote_mint) = inspect_pair_mints(base_mint_data, quote_mint_data)?;
+
+    require_quote_safe(base_mint.safety)?;
+    require_quote_safe(quote_mint.safety)?;
+    require_initialized(base_vault.state)?;
+    require_initialized(quote_vault.state)?;
+
+    if base_vault.mint != pool.base_mint || quote_vault.mint != pool.quote_mint {
+        return Err(SnapshotError::VaultMintMismatch);
+    }
+
+    let effective_quote = effective_quote_reserve(quote_vault.amount, pool.virtual_quote_reserves)?;
+    let market_cap = pool_market_cap(
+        base_mint.supply,
+        base_vault.amount,
+        effective_quote,
+        pool.is_mayhem_mode,
+    )?;
+
+    let fee_schedule = classify_fee_schedule(&pool, &pump_global);
+    let has_coin_creator = pool.coin_creator != [0u8; 32];
+
+    let resolved_fees = resolve_pool_fees(
+        &fee_config.config,
+        fee_schedule,
+        market_cap,
+        has_coin_creator,
+        pool.creator_fee_bps,
+        pool.is_cashback_coin,
+    )?;
+
+    let state = build_pump_quote_state(
+        &pool,
+        base_vault.amount,
+        quote_vault.amount,
+        resolved_fees,
+        version,
+    );
+
+    Ok((
+        state,
+        PumpAutoSnapshotMeta {
+            base_mint,
+            quote_mint,
+            market_cap,
+            fee_schedule,
+            resolved_fees,
+            pump_creator_fee_configurable: pump_global.creator_fee_configurable,
+            pump_max_configurable_creator_fee_bps: pump_global.max_configurable_creator_fee_bps,
+            amm_creator_fee_configurable: amm_global.creator_fee_configurable,
+            amm_max_configurable_creator_fee_bps: amm_global.max_configurable_creator_fee_bps,
         },
     ))
 }

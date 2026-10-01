@@ -1,6 +1,7 @@
 pub mod mint;
 pub mod pump;
 pub mod pump_fee;
+pub mod pump_global;
 pub mod raydium;
 pub mod token;
 

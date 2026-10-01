@@ -77,7 +77,6 @@ fn decodes_current_fee_config_and_resolves_all_schedules() {
         PumpFeeSchedule::CanonicalSolLike,
         250,
         true,
-        false,
         0,
         false,
     )
@@ -89,7 +88,6 @@ fn decodes_current_fee_config_and_resolves_all_schedules() {
         PumpFeeSchedule::CanonicalStable,
         999,
         true,
-        false,
         0,
         false,
     )
@@ -101,7 +99,6 @@ fn decodes_current_fee_config_and_resolves_all_schedules() {
         PumpFeeSchedule::CanonicalExotic,
         999,
         true,
-        false,
         0,
         false,
     )
@@ -113,7 +110,6 @@ fn decodes_current_fee_config_and_resolves_all_schedules() {
         PumpFeeSchedule::NonCanonical,
         999,
         true,
-        false,
         0,
         false,
     )
@@ -130,7 +126,6 @@ fn historical_config_falls_back_for_stable_and_exotic() {
         PumpFeeSchedule::CanonicalStable,
         250,
         true,
-        false,
         0,
         false,
     )
@@ -142,7 +137,6 @@ fn historical_config_falls_back_for_stable_and_exotic() {
         PumpFeeSchedule::CanonicalExotic,
         250,
         true,
-        false,
         0,
         false,
     )
@@ -159,7 +153,6 @@ fn creator_override_changes_only_creator_rate() {
         PumpFeeSchedule::CanonicalSolLike,
         250,
         true,
-        true,
         99,
         false,
     )
@@ -174,7 +167,6 @@ fn creator_override_changes_only_creator_rate() {
         PumpFeeSchedule::CanonicalSolLike,
         250,
         false,
-        true,
         99,
         false,
     )
