@@ -6,8 +6,7 @@ use crate::{
         pump::{build_quote_state as build_pump_quote_state, decode_pool as decode_pump_pool},
         pump_fee::decode_fee_config,
         raydium::{
-            build_quote_state as build_raydium_quote_state, decode_amm_config,
-            decode_pool_state,
+            build_quote_state as build_raydium_quote_state, decode_amm_config, decode_pool_state,
         },
         token::{decode_token_account_base, TokenAccountState},
         DecodeError,
@@ -174,8 +173,7 @@ pub fn assemble_pump_state_from_config(
         return Err(SnapshotError::VaultMintMismatch);
     }
 
-    let effective_quote =
-        effective_quote_reserve(quote_vault.amount, pool.virtual_quote_reserves)?;
+    let effective_quote = effective_quote_reserve(quote_vault.amount, pool.virtual_quote_reserves)?;
 
     let market_cap = pool_market_cap(
         base_mint.supply,

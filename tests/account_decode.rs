@@ -56,7 +56,10 @@ fn raydium_decoder_reconstructs_fee_excluded_reserves() {
     let p = decode_pool_state(&pool).unwrap();
     assert_eq!(p.creator_fee_on, CreatorFeeOn::OnlyB);
     assert!(p.enable_creator_fee);
-    assert_eq!(vault_amounts_without_fees(&p, 1_000, 2_000).unwrap(), (910, 1_880));
+    assert_eq!(
+        vault_amounts_without_fees(&p, 1_000, 2_000).unwrap(),
+        (910, 1_880)
+    );
 
     let mut config = vec![0u8; 116];
     config[..8].copy_from_slice(&AMM_CONFIG_DISCRIMINATOR);

@@ -1,12 +1,9 @@
 use crate::{
-    decode::{
-        check_discriminator, read_pubkey, read_u128, read_u32, read_u64, DecodeError,
-    },
+    decode::{check_discriminator, read_pubkey, read_u128, read_u32, read_u64, DecodeError},
     quote::pump::{PumpFeeConfig, PumpFeeTier, PumpFeesBps},
 };
 
-pub const FEE_CONFIG_DISCRIMINATOR: [u8; 8] =
-    [143, 52, 146, 187, 219, 123, 76, 155];
+pub const FEE_CONFIG_DISCRIMINATOR: [u8; 8] = [143, 52, 146, 187, 219, 123, 76, 155];
 
 /// Account lengths documented by the current PumpSwap SDK.
 pub const FEE_CONFIG_SIZE_PRE_STABLE: usize = 2_512;

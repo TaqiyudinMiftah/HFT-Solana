@@ -43,8 +43,8 @@ pub fn extension_is_quote_safe(extension: ExtensionType) -> bool {
 }
 
 pub fn inspect_mint(data: &[u8]) -> Result<MintQuoteInfo, MintInspectError> {
-    let state = StateWithExtensions::<Mint>::unpack(data)
-        .map_err(|_| MintInspectError::InvalidMintData)?;
+    let state =
+        StateWithExtensions::<Mint>::unpack(data).map_err(|_| MintInspectError::InvalidMintData)?;
 
     let extensions = state
         .get_extension_types()

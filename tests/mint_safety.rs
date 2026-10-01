@@ -43,7 +43,9 @@ fn blocks_extensions_that_change_transfer_execution_or_amount() {
 #[test]
 fn allows_extensions_that_do_not_change_raw_transfer_economics() {
     assert!(extension_is_quote_safe(ExtensionType::MetadataPointer));
-    assert!(extension_is_quote_safe(ExtensionType::InterestBearingConfig));
+    assert!(extension_is_quote_safe(
+        ExtensionType::InterestBearingConfig
+    ));
     assert!(extension_is_quote_safe(ExtensionType::ScaledUiAmount));
     assert!(extension_is_quote_safe(ExtensionType::PermanentDelegate));
 }

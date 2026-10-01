@@ -123,9 +123,7 @@ pub fn fees_for_schedule(
 ) -> Result<PumpFeesBps, QuoteError> {
     match schedule {
         PumpFeeSchedule::NonCanonical => Ok(config.flat_fees),
-        PumpFeeSchedule::CanonicalSolLike => {
-            calculate_fee_tier(&config.fee_tiers, market_cap)
-        }
+        PumpFeeSchedule::CanonicalSolLike => calculate_fee_tier(&config.fee_tiers, market_cap),
         PumpFeeSchedule::CanonicalStable => {
             let tiers = if config.stable_fee_tiers.is_empty() {
                 &config.fee_tiers

@@ -94,8 +94,7 @@ pub fn quote_cycle(
                     base_cashback = base_cashback.saturating_add(q.cashback);
                 }
                 Some(_) => {
-                    unconverted_cashback_legs =
-                        unconverted_cashback_legs.saturating_add(1);
+                    unconverted_cashback_legs = unconverted_cashback_legs.saturating_add(1);
                 }
                 None => {}
             }

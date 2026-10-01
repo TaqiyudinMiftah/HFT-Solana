@@ -4,9 +4,7 @@ use hft_solana::{
         raydium::{AMM_CONFIG_DISCRIMINATOR, POOL_STATE_DISCRIMINATOR},
     },
     quote::pump::PumpFeesBps,
-    snapshot::{
-        assemble_pump_state, assemble_raydium_state, MintQuoteSafety, SnapshotError,
-    },
+    snapshot::{assemble_pump_state, assemble_raydium_state, MintQuoteSafety, SnapshotError},
     types::StateVersion,
 };
 

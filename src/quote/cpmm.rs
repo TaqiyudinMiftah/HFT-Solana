@@ -38,9 +38,7 @@ pub fn quote_xyk_exact_in(
     }
 
     let fee = fee_floor(amount_in, fee_ppm)?;
-    let effective_in = amount_in
-        .checked_sub(fee)
-        .ok_or(QuoteError::MathOverflow)?;
+    let effective_in = amount_in.checked_sub(fee).ok_or(QuoteError::MathOverflow)?;
 
     let numerator = (effective_in as u128)
         .checked_mul(reserve_out as u128)

@@ -18,23 +18,9 @@ fn fee_uses_integer_floor() {
 
 #[test]
 fn cpmm_output_is_monotonic_for_larger_input() {
-    let small = quote_xyk_exact_in(
-        10_000,
-        10_000_000,
-        20_000_000,
-        3_000,
-        version(),
-    )
-    .unwrap();
+    let small = quote_xyk_exact_in(10_000, 10_000_000, 20_000_000, 3_000, version()).unwrap();
 
-    let large = quote_xyk_exact_in(
-        20_000,
-        10_000_000,
-        20_000_000,
-        3_000,
-        version(),
-    )
-    .unwrap();
+    let large = quote_xyk_exact_in(20_000, 10_000_000, 20_000_000, 3_000, version()).unwrap();
 
     assert!(large.amount_out > small.amount_out);
     assert!(large.dex_fee >= small.dex_fee);
@@ -42,12 +28,5 @@ fn cpmm_output_is_monotonic_for_larger_input() {
 
 #[test]
 fn cpmm_rejects_zero_input() {
-    assert!(quote_xyk_exact_in(
-        0,
-        10_000_000,
-        20_000_000,
-        3_000,
-        version(),
-    )
-    .is_err());
+    assert!(quote_xyk_exact_in(0, 10_000_000, 20_000_000, 3_000, version(),).is_err());
 }

@@ -95,8 +95,12 @@ pub fn vault_amounts_without_fees(
         .ok_or(DecodeError::Math)?;
 
     Ok((
-        vault_0_amount.checked_sub(fees_0).ok_or(DecodeError::Math)?,
-        vault_1_amount.checked_sub(fees_1).ok_or(DecodeError::Math)?,
+        vault_0_amount
+            .checked_sub(fees_0)
+            .ok_or(DecodeError::Math)?,
+        vault_1_amount
+            .checked_sub(fees_1)
+            .ok_or(DecodeError::Math)?,
     ))
 }
 
@@ -107,8 +111,7 @@ pub fn build_quote_state(
     vault_1_amount: u64,
     version: StateVersion,
 ) -> Result<RaydiumCpmmState, DecodeError> {
-    let (reserve_a, reserve_b) =
-        vault_amounts_without_fees(pool, vault_0_amount, vault_1_amount)?;
+    let (reserve_a, reserve_b) = vault_amounts_without_fees(pool, vault_0_amount, vault_1_amount)?;
 
     Ok(RaydiumCpmmState {
         version,

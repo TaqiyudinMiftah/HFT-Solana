@@ -67,10 +67,7 @@ pub(crate) fn read_pubkey(data: &[u8], offset: usize) -> Result<[u8; 32], Decode
 }
 
 #[inline]
-pub(crate) fn check_discriminator(
-    data: &[u8],
-    discriminator: [u8; 8],
-) -> Result<(), DecodeError> {
+pub(crate) fn check_discriminator(data: &[u8], discriminator: [u8; 8]) -> Result<(), DecodeError> {
     if data.get(..8) != Some(discriminator.as_slice()) {
         return Err(DecodeError::BadDiscriminator);
     }

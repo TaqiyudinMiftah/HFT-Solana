@@ -67,7 +67,11 @@ fn known_pumpswap_swaps_match_raw_units() {
         };
 
         assert_eq!(q.quote.amount_out, f.expected_amount_out, "{:?}", f);
-        assert_eq!(q.effective_quote_amount, f.expected_effective_quote, "{:?}", f);
+        assert_eq!(
+            q.effective_quote_amount, f.expected_effective_quote,
+            "{:?}",
+            f
+        );
         assert_eq!(q.lp_fee, f.expected_lp_fee, "{:?}", f);
         assert_eq!(q.protocol_fee, f.expected_protocol_fee, "{:?}", f);
         assert_eq!(q.creator_fee, f.expected_creator_fee, "{:?}", f);
