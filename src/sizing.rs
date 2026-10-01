@@ -50,20 +50,17 @@ pub fn optimize_size(
     best
 }
 
-/// Active-store optimizer that captures one immutable cycle snapshot and uses
-/// it for every size probe, then revalidates pool generations once at the end.
-pub fn optimize_size_active(
+
+pub fn optimize_size_on_snapshot(
     cycle: &Cycle,
-    store: &ActivePoolStore,
+    snapshot: &crate::search::ActiveCycleSnapshot,
     seed: u64,
     max_size: u64,
-    max_slot_skew: u64,
-) -> Result<Option<RouteResult>, SearchError> {
+) -> Option<RouteResult> {
     if seed == 0 || max_size == 0 {
-        return Ok(None);
+        return None;
     }
 
-    let snapshot = capture_active_cycle(cycle, store, max_slot_skew)?;
     let probes = [
         seed / 4,
         seed / 2,
@@ -79,7 +76,10 @@ pub fn optimize_size_active(
             continue;
         }
 
-        let result = snapshot.quote(cycle, amount)?;
+        let Ok(result) = snapshot.quote(cycle, amount) else {
+            continue;
+        };
+
         if best
             .as_ref()
             .map(|current| result.effective_profit > current.effective_profit)
@@ -89,6 +89,24 @@ pub fn optimize_size_active(
         }
     }
 
+    best
+}
+
+/// Active-store optimizer that captures one immutable cycle snapshot and uses
+/// it for every size probe, then revalidates pool generations once at the end.
+pub fn optimize_size_active(
+    cycle: &Cycle,
+    store: &ActivePoolStore,
+    seed: u64,
+    max_size: u64,
+    max_slot_skew: u64,
+) -> Result<Option<RouteResult>, SearchError> {
+    if seed == 0 || max_size == 0 {
+        return Ok(None);
+    }
+
+    let snapshot = capture_active_cycle(cycle, store, max_slot_skew)?;
+    let best = optimize_size_on_snapshot(cycle, &snapshot, seed, max_size);
     snapshot.validate(store)?;
     Ok(best)
 }

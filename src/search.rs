@@ -52,6 +52,10 @@ pub struct ActiveCycleSnapshot {
 }
 
 impl ActiveCycleSnapshot {
+    pub fn versions(&self) -> SmallVec<[StateVersion; 3]> {
+        self.states.iter().map(|state| state.version()).collect()
+    }
+
     pub fn quote(&self, cycle: &Cycle, amount_in: u64) -> Result<RouteResult, QuoteError> {
         quote_cycle_from_snapshots(cycle, &self.states, amount_in)
     }
