@@ -2,33 +2,57 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
-use crate::types::StateVersion;
+use crate::{
+    quote::{pump::PumpFeesBps, raydium::RaydiumFees},
+    types::{Direction, StateVersion},
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CreatorFeeOn {
+    Both,
+    OnlyA,
+    OnlyB,
+}
+
+impl CreatorFeeOn {
+    pub fn is_on_input(self, direction: Direction) -> bool {
+        match (self, direction) {
+            (CreatorFeeOn::Both, _) => true,
+            (CreatorFeeOn::OnlyA, Direction::AtoB) => true,
+            (CreatorFeeOn::OnlyA, Direction::BtoA) => false,
+            (CreatorFeeOn::OnlyB, Direction::AtoB) => false,
+            (CreatorFeeOn::OnlyB, Direction::BtoA) => true,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
-pub struct CpmmState {
+pub struct RaydiumCpmmState {
     pub version: StateVersion,
     pub reserve_a: u64,
     pub reserve_b: u64,
-    pub fee_ppm: u64,
+    pub fees: RaydiumFees,
+    pub creator_fee_on: CreatorFeeOn,
 }
 
 #[derive(Clone, Debug)]
 pub struct PumpState {
     pub version: StateVersion,
-    pub reserve_a: u64,
-    pub reserve_b: u64,
-    pub fee_ppm: u64,
 
-    /// Research placeholder only. Production cashback logic must match
-    /// current Pump program/config integer semantics exactly.
-    pub cashback_ppm: u64,
+    /// A is base token, B is quote token.
+    pub base_reserve: u64,
+    pub raw_quote_reserve: u64,
+    pub virtual_quote_reserves: i128,
+
+    /// Resolved for the current pool state/market-cap tier.
+    pub fees: PumpFeesBps,
+    pub cashback_coin: bool,
 }
 
 #[derive(Clone, Debug)]
 pub enum PoolState {
     Pump(PumpState),
-    RaydiumCpmm(CpmmState),
-    MeteoraDamm(CpmmState),
+    RaydiumCpmm(RaydiumCpmmState),
 }
 
 pub struct PoolCell {

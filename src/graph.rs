@@ -4,6 +4,8 @@ use crate::types::{CycleId, Direction, PoolId, TokenId};
 pub struct Edge {
     pub pool: PoolId,
     pub direction: Direction,
+    pub from_token: TokenId,
+    pub to_token: TokenId,
 }
 
 #[derive(Clone, Copy, Debug)]

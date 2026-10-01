@@ -1,5 +1,5 @@
 use crate::{
-    quote::{Quote, QuoteError},
+    quote::{CashbackLocation, Quote, QuoteError},
     types::StateVersion,
 };
 
@@ -19,11 +19,9 @@ pub fn fee_floor(amount: u64, fee_ppm: u64) -> Result<u64, QuoteError> {
     u64::try_from(fee).map_err(|_| QuoteError::MathOverflow)
 }
 
-/// Constant-product exact-input quote.
+/// Generic constant-product research primitive.
 ///
-/// This is a generic research primitive, not a claim of byte-for-byte
-/// parity with any specific DEX. DEX adapters must wrap this and prove
-/// integer/rounding parity against program or official SDK fixtures.
+/// DEX adapters must wrap this and prove their fee/rounding semantics separately.
 #[inline(always)]
 pub fn quote_xyk_exact_in(
     amount_in: u64,
@@ -59,6 +57,7 @@ pub fn quote_xyk_exact_in(
         amount_out,
         dex_fee: fee,
         cashback: 0,
+        cashback_location: CashbackLocation::None,
         version,
     })
 }
