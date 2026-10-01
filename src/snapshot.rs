@@ -4,6 +4,7 @@ use crate::{
     decode::{
         mint::{inspect_mint, MintInspectError, MintQuoteInfo},
         pump::{build_quote_state as build_pump_quote_state, decode_pool as decode_pump_pool},
+        pump_fee::decode_fee_config,
         raydium::{
             build_quote_state as build_raydium_quote_state, decode_amm_config,
             decode_pool_state,
@@ -11,7 +12,13 @@ use crate::{
         token::{decode_token_account_base, TokenAccountState},
         DecodeError,
     },
-    quote::pump::PumpFeesBps,
+    quote::{
+        pump::{
+            effective_quote_reserve, pool_market_cap, resolve_pool_fees, PumpFeeSchedule,
+            PumpFeesBps,
+        },
+        QuoteError,
+    },
     state::{PumpState, RaydiumCpmmState},
     types::StateVersion,
 };
@@ -26,10 +33,20 @@ pub enum MintQuoteSafety {
     UnsupportedOrUnknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PumpSnapshotMeta {
+    pub base_mint: MintQuoteInfo,
+    pub quote_mint: MintQuoteInfo,
+    pub market_cap: u128,
+    pub resolved_fees: PumpFeesBps,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum SnapshotError {
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    #[error(transparent)]
+    Quote(#[from] QuoteError),
     #[error("invalid mint account")]
     MintDecode,
     #[error("vault mint does not match pool mint")]
@@ -124,6 +141,78 @@ pub fn assemble_pump_state_with_mints(
     )?;
 
     Ok((state, base_mint))
+}
+
+/// Assemble a Pump quote snapshot directly from raw pool/vault/mint/FeeConfig
+/// account data.
+///
+/// Canonical-pool and quote-mint classification are discovery concerns, so the
+/// already-classified fee schedule is supplied by the caller.
+pub fn assemble_pump_state_from_config(
+    pool_data: &[u8],
+    fee_config_data: &[u8],
+    base_vault_data: &[u8],
+    quote_vault_data: &[u8],
+    base_mint_data: &[u8],
+    quote_mint_data: &[u8],
+    fee_schedule: PumpFeeSchedule,
+    creator_fee_configurable: bool,
+    version: StateVersion,
+) -> Result<(PumpState, PumpSnapshotMeta), SnapshotError> {
+    let pool = decode_pump_pool(pool_data)?;
+    let fee_config = decode_fee_config(fee_config_data)?;
+    let base_vault = decode_token_account_base(base_vault_data)?;
+    let quote_vault = decode_token_account_base(quote_vault_data)?;
+    let (base_mint, quote_mint) = inspect_pair_mints(base_mint_data, quote_mint_data)?;
+
+    require_quote_safe(base_mint.safety)?;
+    require_quote_safe(quote_mint.safety)?;
+    require_initialized(base_vault.state)?;
+    require_initialized(quote_vault.state)?;
+
+    if base_vault.mint != pool.base_mint || quote_vault.mint != pool.quote_mint {
+        return Err(SnapshotError::VaultMintMismatch);
+    }
+
+    let effective_quote =
+        effective_quote_reserve(quote_vault.amount, pool.virtual_quote_reserves)?;
+
+    let market_cap = pool_market_cap(
+        base_mint.supply,
+        base_vault.amount,
+        effective_quote,
+        pool.is_mayhem_mode,
+    )?;
+
+    let has_coin_creator = pool.coin_creator != [0u8; 32];
+
+    let resolved_fees = resolve_pool_fees(
+        &fee_config.config,
+        fee_schedule,
+        market_cap,
+        has_coin_creator,
+        creator_fee_configurable,
+        pool.creator_fee_bps,
+        pool.is_cashback_coin,
+    )?;
+
+    let state = build_pump_quote_state(
+        &pool,
+        base_vault.amount,
+        quote_vault.amount,
+        resolved_fees,
+        version,
+    );
+
+    Ok((
+        state,
+        PumpSnapshotMeta {
+            base_mint,
+            quote_mint,
+            market_cap,
+            resolved_fees,
+        },
+    ))
 }
 
 pub fn assemble_raydium_state(
