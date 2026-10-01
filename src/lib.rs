@@ -3,6 +3,7 @@ pub mod feed;
 pub mod graph;
 pub mod opportunity;
 pub mod quote;
+pub mod reactor;
 pub mod search;
 pub mod sizing;
 pub mod snapshot;
