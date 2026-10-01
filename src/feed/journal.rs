@@ -126,10 +126,7 @@ fn version_identity(update: &AccountUpdate) -> VersionIdentity {
     )
 }
 
-fn entry_matches_discard(
-    update: &AccountUpdate,
-    discarded: &HashSet<(u64, u64, u64)>,
-) -> bool {
+fn entry_matches_discard(update: &AccountUpdate, discarded: &HashSet<(u64, u64, u64)>) -> bool {
     let Some(bank_id) = update.bank_id else {
         // Startup snapshots are not bank-scoped and are retained as fallback.
         return false;

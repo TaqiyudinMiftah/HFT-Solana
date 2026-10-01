@@ -1,6 +1,4 @@
-use hft_solana::feed::{
-    AccountJournal, AccountUpdate, BankIdentity, JournalApplyResult,
-};
+use hft_solana::feed::{AccountJournal, AccountUpdate, BankIdentity, JournalApplyResult};
 
 fn update(
     pubkey: u8,
@@ -71,10 +69,7 @@ fn same_version_is_deduplicated_or_replaced() {
         journal.apply(original.clone()),
         JournalApplyResult::Inserted
     );
-    assert_eq!(
-        journal.apply(original),
-        JournalApplyResult::Duplicate
-    );
+    assert_eq!(journal.apply(original), JournalApplyResult::Duplicate);
 
     assert_eq!(
         journal.apply(update(3, 1, 300, Some(3), 9, 2)),
