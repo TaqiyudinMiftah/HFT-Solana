@@ -1,4 +1,5 @@
 pub mod decode;
+pub mod feed;
 pub mod graph;
 pub mod opportunity;
 pub mod quote;
