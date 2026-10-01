@@ -21,7 +21,7 @@ pub struct RouteResult {
     pub effective_profit: i128,
 }
 
-#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum SearchError {
     #[error(transparent)]
     Quote(#[from] QuoteError),
