@@ -1,3 +1,4 @@
+pub mod active_store;
 pub mod decode;
 pub mod feed;
 pub mod graph;
