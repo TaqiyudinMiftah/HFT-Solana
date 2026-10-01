@@ -50,7 +50,6 @@ pub fn optimize_size(
     best
 }
 
-
 pub fn optimize_size_on_snapshot(
     cycle: &Cycle,
     snapshot: &crate::search::ActiveCycleSnapshot,

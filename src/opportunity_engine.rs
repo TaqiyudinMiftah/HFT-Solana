@@ -99,12 +99,7 @@ impl OpportunityEngine {
         }
 
         let seed = runtime.last_q_star.max(runtime.config.minimum_probe);
-        let best = optimize_size_on_snapshot(
-            cycle,
-            &snapshot,
-            seed,
-            runtime.config.max_size,
-        )?;
+        let best = optimize_size_on_snapshot(cycle, &snapshot, seed, runtime.config.max_size)?;
 
         if best.effective_profit < runtime.config.minimum_effective_profit {
             return None;
