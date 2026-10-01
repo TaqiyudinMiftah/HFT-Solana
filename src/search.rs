@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
+    active_store::ActivePoolStore,
     graph::{Cycle, Edge},
     quote::{CashbackLocation, Quote, QuoteError},
     state::{PoolCell, PoolState},
@@ -27,6 +28,8 @@ pub enum SearchError {
     Quote(#[from] QuoteError),
     #[error("cycle references missing pool {0}")]
     MissingPool(PoolId),
+    #[error("pool {0} is not active")]
+    InactivePool(PoolId),
     #[error(
         "cycle snapshot slot skew exceeds limit: min={min_slot} max={max_slot} allowed={max_allowed}"
     )]
@@ -41,6 +44,37 @@ pub enum SearchError {
         expected: StateVersion,
         actual: StateVersion,
     },
+}
+
+pub struct ActiveCycleSnapshot {
+    pool_ids: SmallVec<[PoolId; 3]>,
+    states: SmallVec<[Arc<PoolState>; 3]>,
+}
+
+impl ActiveCycleSnapshot {
+    pub fn quote(&self, cycle: &Cycle, amount_in: u64) -> Result<RouteResult, QuoteError> {
+        quote_cycle_from_snapshots(cycle, &self.states, amount_in)
+    }
+
+    pub fn validate(&self, store: &ActivePoolStore) -> Result<(), SearchError> {
+        for (pool_id, captured) in self.pool_ids.iter().zip(self.states.iter()) {
+            let current = store
+                .get(*pool_id)
+                .ok_or(SearchError::InactivePool(*pool_id))?
+                .version();
+            let expected = captured.version();
+
+            if current != expected {
+                return Err(SearchError::StaleGeneration {
+                    pool: *pool_id,
+                    expected,
+                    actual: current,
+                });
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[inline]
@@ -144,28 +178,24 @@ fn quote_cycle_from_snapshots(
     })
 }
 
-fn load_cycle_snapshots(
-    cycle: &Cycle,
-    pools: &[PoolCell],
+fn ensure_slot_skew(
+    snapshots: &[Arc<PoolState>],
     max_slot_skew: u64,
-) -> Result<SmallVec<[Arc<PoolState>; 3]>, SearchError> {
-    let mut snapshots = SmallVec::<[Arc<PoolState>; 3]>::new();
+) -> Result<(), SearchError> {
+    if snapshots.is_empty() {
+        return Ok(());
+    }
+
     let mut min_slot = u64::MAX;
     let mut max_slot = 0u64;
 
-    for edge in cycle.edge_iter() {
-        let pool = pools
-            .get(edge.pool as usize)
-            .ok_or(SearchError::MissingPool(edge.pool))?;
-        let state = pool.state.load_full();
+    for state in snapshots {
         let slot = state.version().slot;
-
         min_slot = min_slot.min(slot);
         max_slot = max_slot.max(slot);
-        snapshots.push(state);
     }
 
-    if !snapshots.is_empty() && max_slot.saturating_sub(min_slot) > max_slot_skew {
+    if max_slot.saturating_sub(min_slot) > max_slot_skew {
         return Err(SearchError::SlotSkew {
             min_slot,
             max_slot,
@@ -173,7 +203,45 @@ fn load_cycle_snapshots(
         });
     }
 
+    Ok(())
+}
+
+fn load_cycle_snapshots(
+    cycle: &Cycle,
+    pools: &[PoolCell],
+    max_slot_skew: u64,
+) -> Result<SmallVec<[Arc<PoolState>; 3]>, SearchError> {
+    let mut snapshots = SmallVec::<[Arc<PoolState>; 3]>::new();
+
+    for edge in cycle.edge_iter() {
+        let pool = pools
+            .get(edge.pool as usize)
+            .ok_or(SearchError::MissingPool(edge.pool))?;
+        snapshots.push(pool.state.load_full());
+    }
+
+    ensure_slot_skew(&snapshots, max_slot_skew)?;
     Ok(snapshots)
+}
+
+pub fn capture_active_cycle(
+    cycle: &Cycle,
+    store: &ActivePoolStore,
+    max_slot_skew: u64,
+) -> Result<ActiveCycleSnapshot, SearchError> {
+    let mut pool_ids = SmallVec::<[PoolId; 3]>::new();
+    let mut states = SmallVec::<[Arc<PoolState>; 3]>::new();
+
+    for edge in cycle.edge_iter() {
+        let cell = store
+            .get(edge.pool)
+            .ok_or(SearchError::InactivePool(edge.pool))?;
+        pool_ids.push(edge.pool);
+        states.push(cell.state.load_full());
+    }
+
+    ensure_slot_skew(&states, max_slot_skew)?;
+    Ok(ActiveCycleSnapshot { pool_ids, states })
 }
 
 pub fn quote_cycle(
@@ -191,8 +259,6 @@ pub fn quote_cycle(
     quote_cycle_from_snapshots(cycle, &snapshots, initial_amount)
 }
 
-/// Quote a cycle optimistically and reject it if any participating pool changes
-/// before the calculation finishes.
 pub fn quote_cycle_consistent(
     cycle: &Cycle,
     pools: &[PoolCell],
@@ -221,6 +287,18 @@ pub fn quote_cycle_consistent(
     Ok(result)
 }
 
+pub fn quote_active_cycle_consistent(
+    cycle: &Cycle,
+    store: &ActivePoolStore,
+    initial_amount: u64,
+    max_slot_skew: u64,
+) -> Result<RouteResult, SearchError> {
+    let snapshot = capture_active_cycle(cycle, store, max_slot_skew)?;
+    let result = snapshot.quote(cycle, initial_amount)?;
+    snapshot.validate(store)?;
+    Ok(result)
+}
+
 pub fn marginal_candidate(
     cycle: &Cycle,
     pools: &[PoolCell],
@@ -228,6 +306,18 @@ pub fn marginal_candidate(
     minimum_effective_profit: i128,
 ) -> bool {
     quote_cycle(cycle, pools, probe)
+        .map(|q| q.effective_profit > minimum_effective_profit)
+        .unwrap_or(false)
+}
+
+pub fn marginal_candidate_active(
+    cycle: &Cycle,
+    store: &ActivePoolStore,
+    probe: u64,
+    minimum_effective_profit: i128,
+    max_slot_skew: u64,
+) -> bool {
+    quote_active_cycle_consistent(cycle, store, probe, max_slot_skew)
         .map(|q| q.effective_profit > minimum_effective_profit)
         .unwrap_or(false)
 }
