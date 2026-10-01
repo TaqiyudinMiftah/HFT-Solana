@@ -1,9 +1,7 @@
 use crate::{
     active_store::ActivePoolStore,
     graph::Cycle,
-    search::{
-        capture_active_cycle, quote_cycle, RouteResult, SearchError,
-    },
+    search::{capture_active_cycle, quote_cycle, RouteResult, SearchError},
     state::PoolCell,
 };
 

@@ -178,10 +178,7 @@ fn quote_cycle_from_snapshots(
     })
 }
 
-fn ensure_slot_skew(
-    snapshots: &[Arc<PoolState>],
-    max_slot_skew: u64,
-) -> Result<(), SearchError> {
+fn ensure_slot_skew(snapshots: &[Arc<PoolState>], max_slot_skew: u64) -> Result<(), SearchError> {
     if snapshots.is_empty() {
         return Ok(());
     }
