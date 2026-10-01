@@ -1,3 +1,4 @@
+pub mod mint;
 pub mod pump;
 pub mod raydium;
 pub mod token;

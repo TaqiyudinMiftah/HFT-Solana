@@ -2,6 +2,7 @@ use thiserror::Error;
 
 use crate::{
     decode::{
+        mint::{inspect_mint, MintInspectError, MintQuoteInfo},
         pump::{build_quote_state as build_pump_quote_state, decode_pool as decode_pump_pool},
         raydium::{
             build_quote_state as build_raydium_quote_state, decode_amm_config,
@@ -29,12 +30,20 @@ pub enum MintQuoteSafety {
 pub enum SnapshotError {
     #[error(transparent)]
     Decode(#[from] DecodeError),
+    #[error("invalid mint account")]
+    MintDecode,
     #[error("vault mint does not match pool mint")]
     VaultMintMismatch,
     #[error("vault token account is not initialized")]
     VaultNotInitialized,
     #[error("mint has unsupported or unresolved quote-affecting extensions")]
     UnsupportedMintBehavior,
+}
+
+impl From<MintInspectError> for SnapshotError {
+    fn from(_: MintInspectError) -> Self {
+        SnapshotError::MintDecode
+    }
 }
 
 #[inline]
@@ -52,6 +61,13 @@ fn require_initialized(state: TokenAccountState) -> Result<(), SnapshotError> {
     } else {
         Err(SnapshotError::VaultNotInitialized)
     }
+}
+
+pub fn inspect_pair_mints(
+    mint_a_data: &[u8],
+    mint_b_data: &[u8],
+) -> Result<(MintQuoteInfo, MintQuoteInfo), SnapshotError> {
+    Ok((inspect_mint(mint_a_data)?, inspect_mint(mint_b_data)?))
 }
 
 pub fn assemble_pump_state(
@@ -86,6 +102,30 @@ pub fn assemble_pump_state(
     ))
 }
 
+pub fn assemble_pump_state_with_mints(
+    pool_data: &[u8],
+    base_vault_data: &[u8],
+    quote_vault_data: &[u8],
+    base_mint_data: &[u8],
+    quote_mint_data: &[u8],
+    resolved_fees: PumpFeesBps,
+    version: StateVersion,
+) -> Result<(PumpState, MintQuoteInfo), SnapshotError> {
+    let (base_mint, quote_mint) = inspect_pair_mints(base_mint_data, quote_mint_data)?;
+
+    let state = assemble_pump_state(
+        pool_data,
+        base_vault_data,
+        quote_vault_data,
+        resolved_fees,
+        base_mint.safety,
+        quote_mint.safety,
+        version,
+    )?;
+
+    Ok((state, base_mint))
+}
+
 pub fn assemble_raydium_state(
     pool_data: &[u8],
     amm_config_data: &[u8],
@@ -117,4 +157,26 @@ pub fn assemble_raydium_state(
         vault_1.amount,
         version,
     )?)
+}
+
+pub fn assemble_raydium_state_with_mints(
+    pool_data: &[u8],
+    amm_config_data: &[u8],
+    vault_0_data: &[u8],
+    vault_1_data: &[u8],
+    mint_0_data: &[u8],
+    mint_1_data: &[u8],
+    version: StateVersion,
+) -> Result<RaydiumCpmmState, SnapshotError> {
+    let (mint_0, mint_1) = inspect_pair_mints(mint_0_data, mint_1_data)?;
+
+    assemble_raydium_state(
+        pool_data,
+        amm_config_data,
+        vault_0_data,
+        vault_1_data,
+        mint_0.safety,
+        mint_1.safety,
+        version,
+    )
 }
