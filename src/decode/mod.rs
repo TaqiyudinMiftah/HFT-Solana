@@ -1,5 +1,6 @@
 pub mod pump;
 pub mod raydium;
+pub mod token;
 
 use thiserror::Error;
 
