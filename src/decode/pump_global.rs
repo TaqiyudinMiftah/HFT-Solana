@@ -1,9 +1,7 @@
 use crate::decode::{check_discriminator, read_pubkey, read_u64, DecodeError};
 
-pub const PUMP_GLOBAL_DISCRIMINATOR: [u8; 8] =
-    [167, 232, 232, 177, 200, 108, 114, 127];
-pub const PUMP_AMM_GLOBAL_CONFIG_DISCRIMINATOR: [u8; 8] =
-    [149, 8, 156, 202, 160, 252, 176, 217];
+pub const PUMP_GLOBAL_DISCRIMINATOR: [u8; 8] = [167, 232, 232, 177, 200, 108, 114, 127];
+pub const PUMP_AMM_GLOBAL_CONFIG_DISCRIMINATOR: [u8; 8] = [149, 8, 156, 202, 160, 252, 176, 217];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PumpGlobalAccount {
