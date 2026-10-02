@@ -84,6 +84,7 @@ impl PaperPipeline {
     /// account decoding is not the subject under test.
     pub fn process_outputs(&mut self, outputs: Vec<ReactorOutput>, created_ns: u64) -> PaperBatch {
         let mut batch = PaperBatch::default();
+        let mut fallback_pools = Vec::<PoolId>::new();
 
         for output in outputs {
             let pool_id = output_pool_id(&output);
@@ -109,9 +110,19 @@ impl PaperPipeline {
                     self.stats.queue_full_fallbacks =
                         self.stats.queue_full_fallbacks.saturating_add(1);
                     batch.queue_full_fallbacks = batch.queue_full_fallbacks.saturating_add(1);
-                    self.evaluate_pool(pool_id, created_ns, &mut batch);
+
+                    if !fallback_pools.contains(&pool_id) {
+                        fallback_pools.push(pool_id);
+                    }
                 }
             }
+        }
+
+        // A single feed event can rebuild several pools that share a config
+        // account. Publish the whole batch before searching so an overflow
+        // fallback can never observe a mixed old/new state vector.
+        for pool_id in fallback_pools {
+            self.evaluate_pool(pool_id, created_ns, &mut batch);
         }
 
         while let Some(pool_id) = self.store.pop_dirty() {

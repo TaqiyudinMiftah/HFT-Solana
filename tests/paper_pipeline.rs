@@ -29,10 +29,14 @@ fn pump_state() -> PoolState {
 }
 
 fn raydium_state() -> PoolState {
+    raydium_state_with(1, 1_000_000, 1_100_000)
+}
+
+fn raydium_state_with(generation: u64, reserve_a: u64, reserve_b: u64) -> PoolState {
     PoolState::RaydiumCpmm(RaydiumCpmmState {
-        version: version(1),
-        reserve_a: 1_000_000,
-        reserve_b: 1_100_000,
+        version: version(generation),
+        reserve_a,
+        reserve_b,
         fees: RaydiumFees {
             trade_fee_rate: 0,
             creator_fee_rate: 0,
@@ -150,4 +154,95 @@ fn invalidation_marks_pool_unavailable_and_emits_no_trade() {
 
     assert!(!pipeline.store().is_ready(1));
     assert!(batch.opportunities.is_empty());
+}
+
+
+fn three_pool_engine() -> OpportunityEngine {
+    let graph = GraphIndex::from_cycles(
+        3,
+        vec![Cycle {
+            id: 0,
+            len: 2,
+            start_token: 0,
+            edges: [
+                Edge {
+                    pool: 1,
+                    direction: Direction::AtoB,
+                    from_token: 0,
+                    to_token: 1,
+                },
+                Edge {
+                    pool: 2,
+                    direction: Direction::BtoA,
+                    from_token: 1,
+                    to_token: 0,
+                },
+                Edge {
+                    pool: 1,
+                    direction: Direction::AtoB,
+                    from_token: 0,
+                    to_token: 0,
+                },
+            ],
+        }],
+    );
+
+    OpportunityEngine::new(
+        graph,
+        vec![CycleSearchConfig {
+            initial_seed: 1_000,
+            minimum_probe: 100,
+            max_size: 10_000,
+            minimum_effective_profit: 1,
+            max_slot_skew: 0,
+            expected_cu: 120_000,
+        }],
+    )
+}
+
+#[test]
+fn queue_full_fallback_waits_until_entire_batch_is_published() {
+    let reactor = PaperStateReactor::new(2, 0);
+    let store = ActivePoolStore::new(3, 1);
+    let mut pipeline = PaperPipeline::new(reactor, store, three_pool_engine());
+
+    let initial = pipeline.process_outputs(
+        vec![
+            ReactorOutput::PoolUpdated {
+                pool_id: 1,
+                state: raydium_state_with(1, 10_000_000, 22_000_000),
+            },
+            ReactorOutput::PoolUpdated {
+                pool_id: 2,
+                state: raydium_state_with(1, 10_000_000, 20_000_000),
+            },
+        ],
+        10,
+    );
+    assert_eq!(initial.opportunities.len(), 1);
+
+    let batch = pipeline.process_outputs(
+        vec![
+            ReactorOutput::PoolUpdated {
+                pool_id: 0,
+                state: pump_state(),
+            },
+            ReactorOutput::PoolUpdated {
+                pool_id: 1,
+                state: raydium_state_with(2, 10_000_000, 23_000_000),
+            },
+            ReactorOutput::PoolUpdated {
+                pool_id: 2,
+                state: raydium_state_with(2, 10_000_000, 19_000_000),
+            },
+        ],
+        20,
+    );
+
+    // Immediate overflow search would evaluate pool 1 before pool 2's update
+    // was published, then evaluate the final state again. The fixed pipeline
+    // publishes the full batch first and emits only the final state vector.
+    assert_eq!(batch.queue_full_fallbacks, 2);
+    assert_eq!(batch.opportunities.len(), 1);
+    assert!(batch.opportunities[0].expected_effective_profit > 0);
 }
