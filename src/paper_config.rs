@@ -220,9 +220,7 @@ fn parse_key(field: &'static str, value: String) -> Result<[u8; 32], PaperConfig
         .map_err(|_| PaperConfigError::InvalidPubkey { field, value })
 }
 
-fn build_pool_recipe(
-    pool: PoolConfig,
-) -> Result<(PoolRecipe, Vec<[u8; 32]>), PaperConfigError> {
+fn build_pool_recipe(pool: PoolConfig) -> Result<(PoolRecipe, Vec<[u8; 32]>), PaperConfigError> {
     match pool {
         PoolConfig::Pump {
             pool,
@@ -359,9 +357,7 @@ fn build_cycle(
     edges[..converted.len()].copy_from_slice(&converted);
 
     let cycle = Cycle {
-        id: index
-            .try_into()
-            .expect("cycle registry exceeds u32"),
+        id: index.try_into().expect("cycle registry exceeds u32"),
         len: converted.len() as u8,
         edges,
         start_token: config.start_token,
