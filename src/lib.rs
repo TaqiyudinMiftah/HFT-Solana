@@ -5,6 +5,8 @@ pub mod graph;
 pub mod opportunity;
 pub mod opportunity_engine;
 pub mod paper;
+#[cfg(feature = "yellowstone")]
+pub mod paper_config;
 pub mod quote;
 pub mod reactor;
 pub mod search;
