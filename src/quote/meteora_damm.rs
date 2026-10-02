@@ -228,7 +228,6 @@ pub fn fee_mode(
     })
 }
 
-
 #[cfg(feature = "meteora-damm")]
 pub fn quote_exact_in_official(
     pool: &meteora_cp_amm::state::Pool,
