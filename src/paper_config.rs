@@ -9,7 +9,9 @@ use crate::{
     graph::{Cycle, Edge, GraphIndex},
     opportunity_engine::{CycleSearchConfig, OpportunityEngine},
     paper::PaperPipeline,
-    reactor::{PaperStateReactor, PoolRecipe, PumpPoolRecipe, RaydiumPoolRecipe},
+    reactor::{
+        MeteoraDammRecipe, PaperStateReactor, PoolRecipe, PumpPoolRecipe, RaydiumPoolRecipe,
+    },
     types::{Direction, TokenId},
 };
 
@@ -66,6 +68,13 @@ pub enum PoolConfig {
         vault_1: String,
         mint_0: String,
         mint_1: String,
+    },
+    MeteoraDamm {
+        pool: String,
+        vault_a: String,
+        vault_b: String,
+        mint_a: String,
+        mint_b: String,
     },
 }
 
@@ -340,6 +349,33 @@ fn build_pool_recipe(
                     mint_a: mint_0,
                     mint_b: mint_1,
                 },
+            ))
+        }
+        PoolConfig::MeteoraDamm {
+            pool,
+            vault_a,
+            vault_b,
+            mint_a,
+            mint_b,
+        } => {
+            let pool = parse_key("pools[].pool", pool)?;
+            let vault_a = parse_key("pools[].vault_a", vault_a)?;
+            let vault_b = parse_key("pools[].vault_b", vault_b)?;
+            let mint_a = parse_key("pools[].mint_a", mint_a)?;
+            let mint_b = parse_key("pools[].mint_b", mint_b)?;
+
+            let accounts = vec![pool, vault_a, vault_b, mint_a, mint_b];
+
+            Ok((
+                PoolRecipe::MeteoraDamm(MeteoraDammRecipe {
+                    pool,
+                    vault_a,
+                    vault_b,
+                    mint_a,
+                    mint_b,
+                }),
+                accounts,
+                PoolTopology { mint_a, mint_b },
             ))
         }
     }
