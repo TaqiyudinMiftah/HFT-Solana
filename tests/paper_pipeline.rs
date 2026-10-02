@@ -156,7 +156,6 @@ fn invalidation_marks_pool_unavailable_and_emits_no_trade() {
     assert!(batch.opportunities.is_empty());
 }
 
-
 fn three_pool_engine() -> OpportunityEngine {
     let graph = GraphIndex::from_cycles(
         3,
