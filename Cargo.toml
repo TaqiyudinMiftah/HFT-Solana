@@ -6,7 +6,13 @@ publish = false
 
 [features]
 default = []
+meteora-damm = [
+    "dep:bytemuck",
+    "dep:meteora-cp-amm",
+    "dep:meteora-damm-sdk",
+]
 yellowstone = [
+    "meteora-damm",
     "dep:futures",
     "dep:tokio",
     "dep:yellowstone-grpc-client",
@@ -17,9 +23,12 @@ yellowstone = [
 
 [dependencies]
 arc-swap = "1"
+bytemuck = { version = "1.20", optional = true }
 crossbeam-queue = "0.3"
 futures = { version = "0.3", optional = true }
 smallvec = "1"
+meteora-cp-amm = { package = "cp-amm", git = "https://github.com/MeteoraAg/damm-v2", rev = "a85c926607433f23f0ea60f4ca7b1ae92f4156cb", features = ["no-entrypoint", "no-custom-entrypoint"], optional = true }
+meteora-damm-sdk = { package = "rust-sdk", git = "https://github.com/MeteoraAg/damm-v2", rev = "a85c926607433f23f0ea60f4ca7b1ae92f4156cb", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 solana-pubkey = { version = "3.0.0", features = ["curve25519", "sha2"] }
