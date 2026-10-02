@@ -1,3 +1,4 @@
+pub mod meteora_damm;
 pub mod mint;
 pub mod pump;
 pub mod pump_fee;
@@ -17,6 +18,16 @@ pub enum DecodeError {
     InvalidValue,
     #[error("integer overflow or underflow")]
     Math,
+}
+
+#[inline]
+pub(crate) fn read_u16(data: &[u8], offset: usize) -> Result<u16, DecodeError> {
+    let bytes: [u8; 2] = data
+        .get(offset..offset + 2)
+        .ok_or(DecodeError::TooShort)?
+        .try_into()
+        .map_err(|_| DecodeError::TooShort)?;
+    Ok(u16::from_le_bytes(bytes))
 }
 
 #[inline]
