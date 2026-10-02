@@ -7,6 +7,10 @@
     "opportunity_channel_capacity": 2048,
     "filter_name": "hft-paper"
   },
+  "tokens": [
+    "REPLACE_WITH_QUOTE_MINT",
+    "REPLACE_WITH_BASE_MINT"
+  ],
   "pools": [
     {
       "kind": "pump",
@@ -25,8 +29,8 @@
       "amm_config": "REPLACE_WITH_RAYDIUM_AMM_CONFIG",
       "vault_0": "REPLACE_WITH_RAYDIUM_VAULT_0",
       "vault_1": "REPLACE_WITH_RAYDIUM_VAULT_1",
-      "mint_0": "REPLACE_WITH_RAYDIUM_MINT_0",
-      "mint_1": "REPLACE_WITH_RAYDIUM_MINT_1"
+      "mint_0": "REPLACE_WITH_BASE_MINT",
+      "mint_1": "REPLACE_WITH_QUOTE_MINT"
     }
   ],
   "cycles": [
