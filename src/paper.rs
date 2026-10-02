@@ -82,11 +82,7 @@ impl PaperPipeline {
     ///
     /// This is public primarily for deterministic replay/tests where raw
     /// account decoding is not the subject under test.
-    pub fn process_outputs(
-        &mut self,
-        outputs: Vec<ReactorOutput>,
-        created_ns: u64,
-    ) -> PaperBatch {
+    pub fn process_outputs(&mut self, outputs: Vec<ReactorOutput>, created_ns: u64) -> PaperBatch {
         let mut batch = PaperBatch::default();
 
         for output in outputs {
@@ -197,8 +193,7 @@ pub mod async_loop {
                             stats.opportunities_forwarded.saturating_add(1);
                     }
                     Err(_) => {
-                        stats.opportunities_dropped =
-                            stats.opportunities_dropped.saturating_add(1);
+                        stats.opportunities_dropped = stats.opportunities_dropped.saturating_add(1);
                     }
                 }
             }
