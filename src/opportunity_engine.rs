@@ -64,10 +64,11 @@ impl OpportunityEngine {
         let Some(cycle_ids) = self.graph.pool_to_cycles.get(changed_pool as usize) else {
             return Vec::new();
         };
+        let cycle_ids = SmallVec::<[CycleId; 8]>::from_slice(cycle_ids);
 
         let mut opportunities = Vec::new();
 
-        for &cycle_id in cycle_ids {
+        for cycle_id in cycle_ids {
             if let Some(opportunity) = self.evaluate_cycle(cycle_id, store, created_ns) {
                 opportunities.push(opportunity);
             }
