@@ -140,3 +140,19 @@ pub fn decode_pool(data: &[u8]) -> Result<MeteoraDammPoolAccount, DecodeError> {
         layout_version: data[696],
     })
 }
+
+
+#[cfg(feature = "meteora-damm")]
+pub fn decode_official_pool(
+    data: &[u8],
+) -> Result<meteora_cp_amm::state::Pool, DecodeError> {
+    if data.len() < POOL_ACCOUNT_LEN {
+        return Err(DecodeError::TooShort);
+    }
+    check_discriminator(data, POOL_DISCRIMINATOR)?;
+
+    bytemuck::try_pod_read_unaligned::<meteora_cp_amm::state::Pool>(
+        &data[8..POOL_ACCOUNT_LEN],
+    )
+    .map_err(|_| DecodeError::InvalidValue)
+}
