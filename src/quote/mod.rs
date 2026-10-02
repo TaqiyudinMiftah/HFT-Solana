@@ -1,4 +1,5 @@
 pub mod cpmm;
+pub mod meteora_damm;
 pub mod pump;
 pub mod pump_identity;
 pub mod raydium;
