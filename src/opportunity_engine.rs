@@ -5,7 +5,7 @@ use crate::{
     graph::GraphIndex,
     opportunity::Opportunity,
     search::capture_active_cycle,
-    sizing::optimize_size_on_snapshot,
+    sizing::optimize_size_on_snapshot_bounded,
     types::{CycleId, PoolId, StateVersion},
 };
 
@@ -100,7 +100,13 @@ impl OpportunityEngine {
         }
 
         let seed = runtime.last_q_star.max(runtime.config.minimum_probe);
-        let best = optimize_size_on_snapshot(cycle, &snapshot, seed, runtime.config.max_size)?;
+        let best = optimize_size_on_snapshot_bounded(
+            cycle,
+            &snapshot,
+            seed,
+            runtime.config.minimum_probe,
+            runtime.config.max_size,
+        )?;
 
         if best.effective_profit < runtime.config.minimum_effective_profit {
             return None;
