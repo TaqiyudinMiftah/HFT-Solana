@@ -11,6 +11,8 @@ yellowstone = [
     "dep:tokio",
     "dep:yellowstone-grpc-client",
     "dep:yellowstone-grpc-proto",
+    "dep:serde",
+    "dep:serde_json",
 ]
 
 [dependencies]
@@ -18,6 +20,8 @@ arc-swap = "1"
 crossbeam-queue = "0.3"
 futures = { version = "0.3", optional = true }
 smallvec = "1"
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 solana-pubkey = { version = "3.0.0", features = ["curve25519", "sha2"] }
 spl-token-2022-interface = "3.1"
 thiserror = "2"
