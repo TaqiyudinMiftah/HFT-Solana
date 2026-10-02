@@ -17,6 +17,7 @@ use crate::{
 pub struct PaperConfig {
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    pub tokens: Vec<String>,
     pub pools: Vec<PoolConfig>,
     pub cycles: Vec<CycleConfig>,
 }
@@ -121,6 +122,8 @@ pub struct BuiltPaperConfig {
 pub enum PaperConfigError {
     #[error("invalid JSON config: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("config must contain at least one token")]
+    NoTokens,
     #[error("config must contain at least one pool")]
     NoPools,
     #[error("config must contain at least one cycle")]
@@ -137,6 +140,19 @@ pub enum PaperConfigError {
         pool: u32,
         pool_count: usize,
     },
+    #[error("cycle {cycle} edge {edge} references token {token}, but only {token_count} tokens exist")]
+    TokenOutOfRange {
+        cycle: usize,
+        edge: usize,
+        token: TokenId,
+        token_count: usize,
+    },
+    #[error("cycle {cycle} edge {edge} direction does not match pool {pool} mint pair")]
+    PoolMintMismatch {
+        cycle: usize,
+        edge: usize,
+        pool: u32,
+    },
     #[error("cycle {cycle} is not token-contiguous at edge {edge}")]
     TokenDiscontinuity { cycle: usize, edge: usize },
     #[error("cycle {cycle} does not return to start token {start_token}")]
@@ -149,6 +165,9 @@ impl PaperConfig {
     }
 
     pub fn build(self) -> Result<BuiltPaperConfig, PaperConfigError> {
+        if self.tokens.is_empty() {
+            return Err(PaperConfigError::NoTokens);
+        }
         if self.pools.is_empty() {
             return Err(PaperConfigError::NoPools);
         }
@@ -173,28 +192,37 @@ impl PaperConfig {
             }
         }
 
+        let token_mints = self
+            .tokens
+            .into_iter()
+            .map(|value| parse_key("tokens[]", value))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let pool_count = self.pools.len();
         let mut reactor = PaperStateReactor::new(
             self.runtime.max_versions_per_account,
             self.runtime.max_hot_slot_skew,
         );
         let mut subscribed = BTreeSet::<String>::new();
+        let mut pool_topologies = Vec::with_capacity(pool_count);
 
         for (index, pool) in self.pools.into_iter().enumerate() {
-            let (recipe, accounts) = build_pool_recipe(pool)?;
+            let (recipe, accounts, topology) = build_pool_recipe(pool)?;
             let pool_id = reactor.register(recipe);
             debug_assert_eq!(pool_id as usize, index);
 
             for account in accounts {
                 subscribed.insert(Pubkey::new_from_array(account).to_string());
             }
+            pool_topologies.push(topology);
         }
 
         let mut cycles = Vec::with_capacity(self.cycles.len());
         let mut configs = Vec::with_capacity(self.cycles.len());
 
         for (index, cycle) in self.cycles.into_iter().enumerate() {
-            let (cycle, config) = build_cycle(index, pool_count, cycle)?;
+            let (cycle, config) =
+                build_cycle(index, pool_count, &token_mints, &pool_topologies, cycle)?;
             cycles.push(cycle);
             configs.push(config);
         }
@@ -220,7 +248,15 @@ fn parse_key(field: &'static str, value: String) -> Result<[u8; 32], PaperConfig
         .map_err(|_| PaperConfigError::InvalidPubkey { field, value })
 }
 
-fn build_pool_recipe(pool: PoolConfig) -> Result<(PoolRecipe, Vec<[u8; 32]>), PaperConfigError> {
+#[derive(Clone, Copy, Debug)]
+struct PoolTopology {
+    mint_a: [u8; 32],
+    mint_b: [u8; 32],
+}
+
+fn build_pool_recipe(
+    pool: PoolConfig,
+) -> Result<(PoolRecipe, Vec<[u8; 32]>, PoolTopology), PaperConfigError> {
     match pool {
         PoolConfig::Pump {
             pool,
@@ -265,6 +301,10 @@ fn build_pool_recipe(pool: PoolConfig) -> Result<(PoolRecipe, Vec<[u8; 32]>), Pa
                     quote_mint,
                 }),
                 accounts,
+                PoolTopology {
+                    mint_a: base_mint,
+                    mint_b: quote_mint,
+                },
             ))
         }
         PoolConfig::RaydiumCpmm {
@@ -294,6 +334,10 @@ fn build_pool_recipe(pool: PoolConfig) -> Result<(PoolRecipe, Vec<[u8; 32]>), Pa
                     mint_1,
                 }),
                 accounts,
+                PoolTopology {
+                    mint_a: mint_0,
+                    mint_b: mint_1,
+                },
             ))
         }
     }
@@ -302,18 +346,51 @@ fn build_pool_recipe(pool: PoolConfig) -> Result<(PoolRecipe, Vec<[u8; 32]>), Pa
 fn build_cycle(
     index: usize,
     pool_count: usize,
+    token_mints: &[[u8; 32]],
+    pool_topologies: &[PoolTopology],
     config: CycleConfig,
 ) -> Result<(Cycle, CycleSearchConfig), PaperConfigError> {
     if !(2..=3).contains(&config.edges.len()) {
         return Err(PaperConfigError::InvalidCycleLength { cycle: index });
     }
 
-    for edge in &config.edges {
+    for (edge_index, edge) in config.edges.iter().enumerate() {
         if edge.pool as usize >= pool_count {
             return Err(PaperConfigError::PoolOutOfRange {
                 cycle: index,
                 pool: edge.pool,
                 pool_count,
+            });
+        }
+
+        let from_mint = token_mints
+            .get(edge.from_token as usize)
+            .ok_or(PaperConfigError::TokenOutOfRange {
+                cycle: index,
+                edge: edge_index,
+                token: edge.from_token,
+                token_count: token_mints.len(),
+            })?;
+        let to_mint = token_mints
+            .get(edge.to_token as usize)
+            .ok_or(PaperConfigError::TokenOutOfRange {
+                cycle: index,
+                edge: edge_index,
+                token: edge.to_token,
+                token_count: token_mints.len(),
+            })?;
+        let topology = &pool_topologies[edge.pool as usize];
+
+        let (expected_from, expected_to) = match edge.direction {
+            DirectionConfig::AToB => (&topology.mint_a, &topology.mint_b),
+            DirectionConfig::BToA => (&topology.mint_b, &topology.mint_a),
+        };
+
+        if from_mint != expected_from || to_mint != expected_to {
+            return Err(PaperConfigError::PoolMintMismatch {
+                cycle: index,
+                edge: edge_index,
+                pool: edge.pool,
             });
         }
     }
