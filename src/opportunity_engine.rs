@@ -4,8 +4,8 @@ use crate::{
     active_store::ActivePoolStore,
     graph::GraphIndex,
     opportunity::Opportunity,
-    search::capture_active_cycle,
-    sizing::optimize_size_on_snapshot_bounded,
+    search::{capture_active_cycle, QuoteContext},
+    sizing::optimize_size_on_snapshot_bounded_at,
     types::{CycleId, PoolId, StateVersion},
 };
 
@@ -94,18 +94,26 @@ impl OpportunityEngine {
         }
         runtime.last_evaluated = versions;
 
-        let probe = snapshot.quote(cycle, runtime.config.minimum_probe).ok()?;
+        let context = QuoteContext {
+            current_timestamp: created_ns / 1_000_000_000,
+            current_slot: snapshot.max_slot(),
+        };
+
+        let probe = snapshot
+            .quote_at(cycle, runtime.config.minimum_probe, context)
+            .ok()?;
         if probe.effective_profit <= 0 {
             return None;
         }
 
         let seed = runtime.last_q_star.max(runtime.config.minimum_probe);
-        let best = optimize_size_on_snapshot_bounded(
+        let best = optimize_size_on_snapshot_bounded_at(
             cycle,
             &snapshot,
             seed,
             runtime.config.minimum_probe,
             runtime.config.max_size,
+            context,
         )?;
 
         if best.effective_profit < runtime.config.minimum_effective_profit {
