@@ -140,7 +140,9 @@ pub enum PaperConfigError {
         pool: u32,
         pool_count: usize,
     },
-    #[error("cycle {cycle} edge {edge} references token {token}, but only {token_count} tokens exist")]
+    #[error(
+        "cycle {cycle} edge {edge} references token {token}, but only {token_count} tokens exist"
+    )]
     TokenOutOfRange {
         cycle: usize,
         edge: usize,
@@ -363,22 +365,24 @@ fn build_cycle(
             });
         }
 
-        let from_mint = token_mints
-            .get(edge.from_token as usize)
-            .ok_or(PaperConfigError::TokenOutOfRange {
-                cycle: index,
-                edge: edge_index,
-                token: edge.from_token,
-                token_count: token_mints.len(),
-            })?;
-        let to_mint = token_mints
-            .get(edge.to_token as usize)
-            .ok_or(PaperConfigError::TokenOutOfRange {
-                cycle: index,
-                edge: edge_index,
-                token: edge.to_token,
-                token_count: token_mints.len(),
-            })?;
+        let from_mint =
+            token_mints
+                .get(edge.from_token as usize)
+                .ok_or(PaperConfigError::TokenOutOfRange {
+                    cycle: index,
+                    edge: edge_index,
+                    token: edge.from_token,
+                    token_count: token_mints.len(),
+                })?;
+        let to_mint =
+            token_mints
+                .get(edge.to_token as usize)
+                .ok_or(PaperConfigError::TokenOutOfRange {
+                    cycle: index,
+                    edge: edge_index,
+                    token: edge.to_token,
+                    token_count: token_mints.len(),
+                })?;
         let topology = &pool_topologies[edge.pool as usize];
 
         let (expected_from, expected_to) = match edge.direction {
