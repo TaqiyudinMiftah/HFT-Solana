@@ -41,16 +41,19 @@ Pools receive dense numeric IDs from their order in the JSON `pools` array:
 
 Cycle edges reference those IDs.
 
-Token IDs are local integers chosen by the config author. They do not need to
-match any on-chain identifier, but they must be consistent across edges. Every
-cycle must:
+The top-level `tokens` array maps each local token ID to a real mint address:
+index 0 is token 0, index 1 is token 1, and so on. Cycle edges are validated
+against the configured pool mint pair and direction before Yellowstone is
+connected. Every cycle must:
 
 1. start at `start_token`;
 2. be token-contiguous edge-to-edge;
 3. contain two or three edges;
-4. return to `start_token`.
+4. use a direction whose input/output mints match the referenced pool;
+5. return to `start_token`.
 
-The config loader rejects invalid topology before connecting to Yellowstone.
+The config loader rejects invalid topology or mint-direction mismatches before
+connecting to Yellowstone.
 
 ## Search values
 
