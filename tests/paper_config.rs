@@ -18,6 +18,7 @@ fn config_json() -> String {
             "opportunity_channel_capacity": 8,
             "filter_name": "test-paper"
         },
+        "tokens": [key(8), key(7)],
         "pools": [
             {
                 "kind": "pump",
@@ -36,8 +37,8 @@ fn config_json() -> String {
                 "amm_config": key(10),
                 "vault_0": key(11),
                 "vault_1": key(12),
-                "mint_0": key(13),
-                "mint_1": key(14)
+                "mint_0": key(7),
+                "mint_1": key(8)
             }
         ],
         "cycles": [
@@ -77,7 +78,7 @@ fn config_builds_pipeline_and_deduplicated_account_filter() {
     let built = config.build().unwrap();
 
     assert_eq!(built.filter_name, "test-paper");
-    assert_eq!(built.account_filters.len(), 14);
+    assert_eq!(built.account_filters.len(), 12);
     assert_eq!(built.feed_channel_capacity, 32);
     assert_eq!(built.opportunity_channel_capacity, 8);
 }
@@ -85,7 +86,9 @@ fn config_builds_pipeline_and_deduplicated_account_filter() {
 #[test]
 fn rejects_non_closed_cycles_before_runtime() {
     let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
-    value["cycles"][0]["edges"][1]["to_token"] = json!(99);
+    value["tokens"].as_array_mut().unwrap().push(json!(key(15)));
+    value["pools"][1]["mint_1"] = json!(key(15));
+    value["cycles"][0]["edges"][1]["to_token"] = json!(2);
 
     let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
     assert!(matches!(
@@ -103,5 +106,17 @@ fn rejects_invalid_pubkeys_before_connecting_to_yellowstone() {
     assert!(matches!(
         config.build(),
         Err(PaperConfigError::InvalidPubkey { .. })
+    ));
+}
+
+#[test]
+fn rejects_cycle_direction_that_does_not_match_pool_mints() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["cycles"][0]["edges"][1]["direction"] = json!("b_to_a");
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::PoolMintMismatch { .. })
     ));
 }
