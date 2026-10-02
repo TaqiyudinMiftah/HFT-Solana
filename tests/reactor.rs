@@ -197,6 +197,8 @@ fn reactor_waits_for_coherent_hot_accounts_and_rolls_back_discarded_bank() {
                 assert_eq!(state.reserve_b, 2_000_000);
             }
             PoolState::Pump(_) => panic!("unexpected Pump state"),
+            #[cfg(feature = "meteora-damm")]
+            PoolState::MeteoraDamm(_) => panic!("unexpected Meteora DAMM state"),
         },
         ReactorOutput::PoolInvalidated { .. } => panic!("rollback should rebuild"),
     }
