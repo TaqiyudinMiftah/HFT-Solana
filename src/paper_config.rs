@@ -216,7 +216,7 @@ impl PaperConfig {
 
 fn parse_key(field: &'static str, value: String) -> Result<[u8; 32], PaperConfigError> {
     Pubkey::from_str(&value)
-        .map(Pubkey::to_bytes)
+        .map(|key| key.to_bytes())
         .map_err(|_| PaperConfigError::InvalidPubkey { field, value })
 }
 
