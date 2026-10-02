@@ -360,3 +360,34 @@ pub fn assemble_raydium_state_with_mints(
         version,
     )
 }
+
+
+#[cfg(feature = "meteora-damm")]
+pub fn assemble_meteora_damm_state_with_mints(
+    pool_data: &[u8],
+    vault_a_data: &[u8],
+    vault_b_data: &[u8],
+    mint_a_data: &[u8],
+    mint_b_data: &[u8],
+    version: StateVersion,
+) -> Result<crate::state::MeteoraDammState, SnapshotError> {
+    let decoded = crate::decode::meteora_damm::decode_pool(pool_data)?;
+    let official = crate::decode::meteora_damm::decode_official_pool(pool_data)?;
+    let vault_a = decode_token_account_base(vault_a_data)?;
+    let vault_b = decode_token_account_base(vault_b_data)?;
+    let (mint_a, mint_b) = inspect_pair_mints(mint_a_data, mint_b_data)?;
+
+    require_quote_safe(mint_a.safety)?;
+    require_quote_safe(mint_b.safety)?;
+    require_initialized(vault_a.state)?;
+    require_initialized(vault_b.state)?;
+
+    if vault_a.mint != decoded.token_a_mint || vault_b.mint != decoded.token_b_mint {
+        return Err(SnapshotError::VaultMintMismatch);
+    }
+
+    Ok(crate::state::MeteoraDammState {
+        version,
+        pool: std::sync::Arc::new(official),
+    })
+}
