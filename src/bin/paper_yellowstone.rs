@@ -12,9 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env, fs, io};
 
     use hft_solana::{
-        feed::yellowstone::{
-            run_account_feed, YellowstoneAccountFilter, YellowstoneConfig,
-        },
+        feed::yellowstone::{run_account_feed, YellowstoneAccountFilter, YellowstoneConfig},
         paper::async_loop::run_paper_event_loop,
         paper_config::PaperConfig,
     };
@@ -57,8 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let (feed_tx, feed_rx) = mpsc::channel(built.feed_channel_capacity);
-    let (opportunity_tx, mut opportunity_rx) =
-        mpsc::channel(built.opportunity_channel_capacity);
+    let (opportunity_tx, mut opportunity_rx) = mpsc::channel(built.opportunity_channel_capacity);
 
     let mut feed_task = tokio::spawn(run_account_feed(yellowstone, feed_tx));
     let mut paper_task = tokio::spawn(run_paper_event_loop(
