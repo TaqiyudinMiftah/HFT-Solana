@@ -201,3 +201,77 @@ fn reactor_waits_for_coherent_hot_accounts_and_rolls_back_discarded_bank() {
         ReactorOutput::PoolInvalidated { .. } => panic!("rollback should rebuild"),
     }
 }
+
+
+#[test]
+fn static_dependency_update_advances_causal_version_without_hot_skew_failure() {
+    let pool_key = [21u8; 32];
+    let config_key = [22u8; 32];
+    let vault_0_key = [23u8; 32];
+    let vault_1_key = [24u8; 32];
+    let mint_0_key = [25u8; 32];
+    let mint_1_key = [26u8; 32];
+
+    let mut reactor = PaperStateReactor::new(8, 0);
+    reactor.register(PoolRecipe::RaydiumCpmm(RaydiumPoolRecipe {
+        pool: pool_key,
+        amm_config: config_key,
+        vault_0: vault_0_key,
+        vault_1: vault_1_key,
+        mint_0: mint_0_key,
+        mint_1: mint_1_key,
+    }));
+
+    let mint_0 = [31u8; 32];
+    let mint_1 = [32u8; 32];
+
+    assert!(reactor
+        .process(update(config_key, 10, 1, None, raydium_config()))
+        .is_empty());
+    assert!(reactor
+        .process(update(mint_0_key, 10, 1, None, legacy_mint(1_000_000)))
+        .is_empty());
+    assert!(reactor
+        .process(update(mint_1_key, 10, 1, None, legacy_mint(1_000_000)))
+        .is_empty());
+    assert!(reactor
+        .process(update(
+            pool_key,
+            100,
+            1,
+            Some(20),
+            raydium_pool(mint_0, mint_1),
+        ))
+        .is_empty());
+    assert!(reactor
+        .process(update(
+            vault_0_key,
+            100,
+            2,
+            Some(20),
+            token_account(mint_0, 1_000_000),
+        ))
+        .is_empty());
+
+    let initial = reactor.process(update(
+        vault_1_key,
+        100,
+        3,
+        Some(20),
+        token_account(mint_1, 2_000_000),
+    ));
+    assert_eq!(updated_slot(&initial), Some(100));
+
+    // Only static config moves. Hot accounts are still coherent at slot 100,
+    // so the pool remains valid, but its causal version must advance to 105.
+    let changed = reactor.process(update(config_key, 105, 9, Some(21), raydium_config()));
+    assert_eq!(updated_slot(&changed), Some(105));
+
+    match &changed[0] {
+        ReactorOutput::PoolUpdated { state, .. } => {
+            assert_eq!(state.version().write_version, 9);
+            assert_eq!(state.version().generation, 2);
+        }
+        ReactorOutput::PoolInvalidated { .. } => panic!("static config update should rebuild"),
+    }
+}

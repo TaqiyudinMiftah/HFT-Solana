@@ -269,28 +269,38 @@ impl PaperStateReactor {
         recipe: &PoolRecipe,
     ) -> Result<StateVersion, ReactorInvalidation> {
         let hot = recipe.hot_dependencies();
-        let mut min_slot = u64::MAX;
-        let mut max_slot = 0u64;
-        let mut max_write_version = 0u64;
+        let mut hot_min_slot = u64::MAX;
+        let mut hot_max_slot = 0u64;
 
         for key in hot {
             let account = self.require(&key)?;
-            min_slot = min_slot.min(account.slot);
-            max_slot = max_slot.max(account.slot);
-            max_write_version = max_write_version.max(account.write_version);
+            hot_min_slot = hot_min_slot.min(account.slot);
+            hot_max_slot = hot_max_slot.max(account.slot);
         }
 
-        if max_slot.saturating_sub(min_slot) > self.max_hot_slot_skew {
+        if hot_max_slot.saturating_sub(hot_min_slot) > self.max_hot_slot_skew {
             return Err(ReactorInvalidation::HotSlotSkew {
-                min_slot,
-                max_slot,
+                min_slot: hot_min_slot,
+                max_slot: hot_max_slot,
                 max_allowed: self.max_hot_slot_skew,
             });
         }
 
+        // The skew gate intentionally considers only accounts that must move
+        // together during swaps. The published causal version, however, must
+        // cover every dependency so a newer fee/config/pool update cannot be
+        // represented with an older slot/write-version pair.
+        let mut causal_slot = 0u64;
+        let mut causal_write_version = 0u64;
+        for key in recipe.dependencies() {
+            let account = self.require(&key)?;
+            causal_slot = causal_slot.max(account.slot);
+            causal_write_version = causal_write_version.max(account.write_version);
+        }
+
         Ok(StateVersion {
-            slot: max_slot,
-            write_version: max_write_version,
+            slot: causal_slot,
+            write_version: causal_write_version,
             generation: self.local_generations[pool_id as usize].saturating_add(1),
         })
     }
