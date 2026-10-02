@@ -1,5 +1,5 @@
 use crate::decode::{
-    check_discriminator, read_pubkey, read_u16, read_u32, read_u64, read_u128, DecodeError,
+    check_discriminator, read_pubkey, read_u128, read_u16, read_u32, read_u64, DecodeError,
 };
 
 /// Meteora DAMM v2 / cp-amm program:
