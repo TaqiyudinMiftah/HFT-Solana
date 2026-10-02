@@ -1,6 +1,4 @@
-use hft_solana::decode::meteora_damm::{
-    decode_pool, POOL_ACCOUNT_LEN, POOL_DISCRIMINATOR,
-};
+use hft_solana::decode::meteora_damm::{decode_pool, POOL_ACCOUNT_LEN, POOL_DISCRIMINATOR};
 
 fn put_u16(data: &mut [u8], offset: usize, value: u16) {
     data[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
