@@ -3,7 +3,7 @@ use smallvec::SmallVec;
 use crate::{
     active_store::ActivePoolStore,
     graph::Cycle,
-    search::{capture_active_cycle, quote_cycle, RouteResult, SearchError},
+    search::{capture_active_cycle, quote_cycle, QuoteContext, RouteResult, SearchError},
     state::PoolCell,
 };
 
@@ -188,6 +188,19 @@ pub fn optimize_size_on_snapshot_bounded(
 
 /// Active-store optimizer that captures one immutable cycle snapshot and uses
 /// it for every size probe, then revalidates pool generations once at the end.
+pub fn optimize_size_on_snapshot_bounded_at(
+    cycle: &Cycle,
+    snapshot: &crate::search::ActiveCycleSnapshot,
+    seed: u64,
+    min_size: u64,
+    max_size: u64,
+    context: QuoteContext,
+) -> Option<RouteResult> {
+    optimize_with(seed, min_size, max_size, |amount| {
+        snapshot.quote_at(cycle, amount, context).ok()
+    })
+}
+
 pub fn optimize_size_active(
     cycle: &Cycle,
     store: &ActivePoolStore,
