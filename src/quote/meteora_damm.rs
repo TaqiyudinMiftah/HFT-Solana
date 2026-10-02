@@ -227,3 +227,44 @@ pub fn fee_mode(
         has_referral,
     })
 }
+
+
+#[cfg(feature = "meteora-damm")]
+pub fn quote_exact_in_official(
+    pool: &meteora_cp_amm::state::Pool,
+    amount_in: u64,
+    direction: Direction,
+    current_timestamp: u64,
+    current_slot: u64,
+    version: crate::types::StateVersion,
+) -> Result<crate::quote::Quote, QuoteError> {
+    if amount_in == 0 {
+        return Err(QuoteError::ZeroInput);
+    }
+
+    let result = meteora_damm_sdk::quote_exact_in::get_quote(
+        pool,
+        current_timestamp,
+        current_slot,
+        amount_in,
+        matches!(direction, Direction::AtoB),
+        false,
+    )
+    .map_err(|_| QuoteError::MeteoraDammQuote)?;
+
+    let dex_fee = result
+        .claiming_fee
+        .checked_add(result.compounding_fee)
+        .and_then(|value| value.checked_add(result.protocol_fee))
+        .and_then(|value| value.checked_add(result.referral_fee))
+        .ok_or(QuoteError::MathOverflow)?;
+
+    Ok(crate::quote::Quote {
+        amount_in,
+        amount_out: result.output_amount,
+        dex_fee,
+        cashback: 0,
+        cashback_location: crate::quote::CashbackLocation::None,
+        version,
+    })
+}
