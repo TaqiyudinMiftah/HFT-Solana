@@ -12,6 +12,12 @@ use crate::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QuoteContext {
+    pub current_timestamp: u64,
+    pub current_slot: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RouteResult {
     pub amount_in: u64,
     pub amount_out: u64,
@@ -57,7 +63,24 @@ impl ActiveCycleSnapshot {
     }
 
     pub fn quote(&self, cycle: &Cycle, amount_in: u64) -> Result<RouteResult, QuoteError> {
-        quote_cycle_from_snapshots(cycle, &self.states, amount_in)
+        quote_cycle_from_snapshots(cycle, &self.states, amount_in, None)
+    }
+
+    pub fn quote_at(
+        &self,
+        cycle: &Cycle,
+        amount_in: u64,
+        context: QuoteContext,
+    ) -> Result<RouteResult, QuoteError> {
+        quote_cycle_from_snapshots(cycle, &self.states, amount_in, Some(context))
+    }
+
+    pub fn max_slot(&self) -> u64 {
+        self.states
+            .iter()
+            .map(|state| state.version().slot)
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn validate(&self, store: &ActivePoolStore) -> Result<(), SearchError> {
@@ -86,6 +109,7 @@ fn quote_edge(
     state: &PoolState,
     direction: Direction,
     amount_in: u64,
+    context: Option<QuoteContext>,
 ) -> Result<Quote, QuoteError> {
     match state {
         PoolState::Pump(s) => match direction {
@@ -127,6 +151,19 @@ fn quote_edge(
             )
             .map(|q| q.quote)
         }
+
+        #[cfg(feature = "meteora-damm")]
+        PoolState::MeteoraDamm(s) => {
+            let context = context.ok_or(QuoteError::MeteoraDammQuote)?;
+            crate::quote::meteora_damm::quote_exact_in_official(
+                s.pool.as_ref(),
+                amount_in,
+                direction,
+                context.current_timestamp,
+                context.current_slot,
+                s.version,
+            )
+        }
     }
 }
 
@@ -143,6 +180,7 @@ fn quote_cycle_from_snapshots(
     cycle: &Cycle,
     snapshots: &[Arc<PoolState>],
     initial_amount: u64,
+    context: Option<QuoteContext>,
 ) -> Result<RouteResult, QuoteError> {
     let mut amount = initial_amount;
     let mut total_fee = 0u64;
@@ -150,7 +188,7 @@ fn quote_cycle_from_snapshots(
     let mut unconverted_cashback_legs = 0u8;
 
     for (edge, state) in cycle.edge_iter().zip(snapshots.iter()) {
-        let q = quote_edge(state.as_ref(), edge.direction, amount)?;
+        let q = quote_edge(state.as_ref(), edge.direction, amount, context)?;
 
         if q.cashback != 0 {
             match cashback_token(edge, q.cashback_location) {
@@ -257,7 +295,23 @@ pub fn quote_cycle(
         snapshots.push(state);
     }
 
-    quote_cycle_from_snapshots(cycle, &snapshots, initial_amount)
+    quote_cycle_from_snapshots(cycle, &snapshots, initial_amount, None)
+}
+
+pub fn quote_cycle_at(
+    cycle: &Cycle,
+    pools: &[PoolCell],
+    initial_amount: u64,
+    context: QuoteContext,
+) -> Result<RouteResult, QuoteError> {
+    let mut snapshots = SmallVec::<[Arc<PoolState>; 3]>::new();
+
+    for edge in cycle.edge_iter() {
+        let state = pools[edge.pool as usize].state.load_full();
+        snapshots.push(state);
+    }
+
+    quote_cycle_from_snapshots(cycle, &snapshots, initial_amount, Some(context))
 }
 
 pub fn quote_cycle_consistent(
@@ -267,7 +321,7 @@ pub fn quote_cycle_consistent(
     max_slot_skew: u64,
 ) -> Result<RouteResult, SearchError> {
     let snapshots = load_cycle_snapshots(cycle, pools, max_slot_skew)?;
-    let result = quote_cycle_from_snapshots(cycle, &snapshots, initial_amount)?;
+    let result = quote_cycle_from_snapshots(cycle, &snapshots, initial_amount, None)?;
 
     for (edge, captured) in cycle.edge_iter().zip(snapshots.iter()) {
         let current = pools
