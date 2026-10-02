@@ -202,7 +202,6 @@ fn reactor_waits_for_coherent_hot_accounts_and_rolls_back_discarded_bank() {
     }
 }
 
-
 #[test]
 fn static_dependency_update_advances_causal_version_without_hot_skew_failure() {
     let pool_key = [21u8; 32];
