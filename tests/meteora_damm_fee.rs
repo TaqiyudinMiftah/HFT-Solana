@@ -51,8 +51,14 @@ fn total_fee_is_capped_by_pool_fee_version() {
 
     assert_eq!(max_fee_numerator(0).unwrap(), 500_000_000);
     assert_eq!(max_fee_numerator(1).unwrap(), 990_000_000);
-    assert_eq!(total_fee_numerator(490_000_000, &d, 0).unwrap(), 500_000_000);
-    assert_eq!(total_fee_numerator(980_000_000, &d, 1).unwrap(), 990_000_000);
+    assert_eq!(
+        total_fee_numerator(490_000_000, &d, 0).unwrap(),
+        500_000_000
+    );
+    assert_eq!(
+        total_fee_numerator(980_000_000, &d, 1).unwrap(),
+        990_000_000
+    );
     assert!(max_fee_numerator(2).is_err());
 }
 

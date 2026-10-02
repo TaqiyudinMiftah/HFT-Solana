@@ -46,9 +46,7 @@ fn mul_div_ceil(a: u128, b: u128, d: u128) -> Result<u128, QuoteError> {
     }
 
     let product = a.checked_mul(b).ok_or(QuoteError::MathOverflow)?;
-    let rounded = product
-        .checked_add(d - 1)
-        .ok_or(QuoteError::MathOverflow)?;
+    let rounded = product.checked_add(d - 1).ok_or(QuoteError::MathOverflow)?;
     Ok(rounded / d)
 }
 
@@ -150,11 +148,7 @@ pub fn split_fees(
     fee_amount: u64,
     has_referral: bool,
 ) -> Result<MeteoraSplitFees, QuoteError> {
-    let protocol_fee = mul_div_floor(
-        fee_amount as u128,
-        fees.protocol_fee_percent as u128,
-        100,
-    )?;
+    let protocol_fee = mul_div_floor(fee_amount as u128, fees.protocol_fee_percent as u128, 100)?;
     let protocol_fee = u64::try_from(protocol_fee).map_err(|_| QuoteError::MathOverflow)?;
     let lp_trading_fee = fee_amount
         .checked_sub(protocol_fee)
@@ -169,18 +163,13 @@ pub fn split_fees(
     } else {
         0
     };
-    let compounding_fee =
-        u64::try_from(compounding_fee).map_err(|_| QuoteError::MathOverflow)?;
+    let compounding_fee = u64::try_from(compounding_fee).map_err(|_| QuoteError::MathOverflow)?;
     let claiming_fee = lp_trading_fee
         .checked_sub(compounding_fee)
         .ok_or(QuoteError::MathOverflow)?;
 
     let referral_fee = if has_referral {
-        mul_div_floor(
-            protocol_fee as u128,
-            fees.referral_fee_percent as u128,
-            100,
-        )?
+        mul_div_floor(protocol_fee as u128, fees.referral_fee_percent as u128, 100)?
     } else {
         0
     };
