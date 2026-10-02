@@ -23,6 +23,16 @@ pub struct PumpPoolRecipe {
     pub quote_mint: AccountKey,
 }
 
+#[cfg(feature = "meteora-damm")]
+#[derive(Clone, Debug)]
+pub struct MeteoraDammRecipe {
+    pub pool: AccountKey,
+    pub vault_a: AccountKey,
+    pub vault_b: AccountKey,
+    pub mint_a: AccountKey,
+    pub mint_b: AccountKey,
+}
+
 #[derive(Clone, Debug)]
 pub struct RaydiumPoolRecipe {
     pub pool: AccountKey,
@@ -37,6 +47,8 @@ pub struct RaydiumPoolRecipe {
 pub enum PoolRecipe {
     Pump(PumpPoolRecipe),
     RaydiumCpmm(RaydiumPoolRecipe),
+    #[cfg(feature = "meteora-damm")]
+    MeteoraDamm(MeteoraDammRecipe),
 }
 
 impl PoolRecipe {
@@ -60,6 +72,14 @@ impl PoolRecipe {
                 recipe.mint_0,
                 recipe.mint_1,
             ]),
+            #[cfg(feature = "meteora-damm")]
+            PoolRecipe::MeteoraDamm(recipe) => SmallVec::from_slice(&[
+                recipe.pool,
+                recipe.vault_a,
+                recipe.vault_b,
+                recipe.mint_a,
+                recipe.mint_b,
+            ]),
         }
     }
 
@@ -75,6 +95,10 @@ impl PoolRecipe {
             }
             PoolRecipe::RaydiumCpmm(recipe) => {
                 SmallVec::from_slice(&[recipe.pool, recipe.vault_0, recipe.vault_1])
+            }
+            #[cfg(feature = "meteora-damm")]
+            PoolRecipe::MeteoraDamm(recipe) => {
+                SmallVec::from_slice(&[recipe.pool, recipe.vault_a, recipe.vault_b])
             }
         }
     }
@@ -246,6 +270,24 @@ impl PaperStateReactor {
                     version,
                 )
                 .map(PoolState::RaydiumCpmm)
+            }
+            #[cfg(feature = "meteora-damm")]
+            PoolRecipe::MeteoraDamm(recipe) => {
+                let pool = self.require(&recipe.pool)?;
+                let vault_a = self.require(&recipe.vault_a)?;
+                let vault_b = self.require(&recipe.vault_b)?;
+                let mint_a = self.require(&recipe.mint_a)?;
+                let mint_b = self.require(&recipe.mint_b)?;
+
+                crate::snapshot::assemble_meteora_damm_state_with_mints(
+                    &pool.data,
+                    &vault_a.data,
+                    &vault_b.data,
+                    &mint_a.data,
+                    &mint_b.data,
+                    version,
+                )
+                .map(PoolState::MeteoraDamm)
             }
         };
 
