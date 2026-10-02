@@ -37,4 +37,6 @@ pub enum QuoteError {
     InvalidEffectiveReserve,
     #[error("integer math overflow")]
     MathOverflow,
+    #[error("Meteora DAMM v2 quote rejected by official math")]
+    MeteoraDammQuote,
 }
