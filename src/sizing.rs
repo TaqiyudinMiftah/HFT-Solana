@@ -33,12 +33,7 @@ fn consider(best: &mut Option<RouteResult>, candidate: Option<RouteResult>) {
 /// inside the neighboring anchors around the best ladder point.
 ///
 /// DEX-specific DLMM/bin routes will use a separate optimizer later.
-fn optimize_with<F>(
-    seed: u64,
-    min_size: u64,
-    max_size: u64,
-    mut quote: F,
-) -> Option<RouteResult>
+fn optimize_with<F>(seed: u64, min_size: u64, max_size: u64, mut quote: F) -> Option<RouteResult>
 where
     F: FnMut(u64) -> Option<RouteResult>,
 {
@@ -216,8 +211,7 @@ pub fn optimize_size_active_bounded(
     }
 
     let snapshot = capture_active_cycle(cycle, store, max_slot_skew)?;
-    let best =
-        optimize_size_on_snapshot_bounded(cycle, &snapshot, seed, min_size, max_size);
+    let best = optimize_size_on_snapshot_bounded(cycle, &snapshot, seed, min_size, max_size);
     snapshot.validate(store)?;
     Ok(best)
 }
