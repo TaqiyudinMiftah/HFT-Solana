@@ -35,6 +35,13 @@ pub struct RaydiumCpmmState {
     pub creator_fee_on: CreatorFeeOn,
 }
 
+#[cfg(feature = "meteora-damm")]
+#[derive(Clone, Debug)]
+pub struct MeteoraDammState {
+    pub version: StateVersion,
+    pub pool: Arc<meteora_cp_amm::state::Pool>,
+}
+
 #[derive(Clone, Debug)]
 pub struct PumpState {
     pub version: StateVersion,
@@ -53,6 +60,8 @@ pub struct PumpState {
 pub enum PoolState {
     Pump(PumpState),
     RaydiumCpmm(RaydiumCpmmState),
+    #[cfg(feature = "meteora-damm")]
+    MeteoraDamm(MeteoraDammState),
 }
 
 impl PoolState {
@@ -61,6 +70,8 @@ impl PoolState {
         match self {
             PoolState::Pump(state) => state.version,
             PoolState::RaydiumCpmm(state) => state.version,
+            #[cfg(feature = "meteora-damm")]
+            PoolState::MeteoraDamm(state) => state.version,
         }
     }
 }
