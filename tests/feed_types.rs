@@ -43,7 +43,6 @@ fn account_update_carries_version_inputs() {
     assert_eq!(update.bank_id, Some(40));
 }
 
-
 #[test]
 fn slot_complete_preserves_exact_bank_identity() {
     let event = FeedEvent::SlotComplete {
