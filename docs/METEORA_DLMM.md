@@ -34,3 +34,23 @@ A quote-ready DLMM state needs more than the pair account:
 Graph integration comes only after the fixture parity test is green and the
 reactor can update the required bin-array set without publishing incomplete
 state.
+
+
+## Raw snapshot assembly
+
+`assemble_meteora_dlmm_quote_state` builds a quote-ready state directly from
+the streamed pair, configured bin-array accounts, optional bitmap extension,
+and both mint accounts.
+
+Before publishing the state it verifies:
+
+- both mints pass the project's conservative quote-safety gate;
+- configured mint pubkeys match `LbPair.token_x_mint/token_y_mint`;
+- every BinArray belongs to the configured LbPair;
+- an optional bitmap extension belongs to the same LbPair;
+- duplicate bin-array pubkeys are rejected.
+
+The graph/reactor integration remains gated because DLMM swaps may update only
+a subset of configured bin arrays. A dedicated coherence policy is required;
+the generic "all hot accounts have the same slot" rule would incorrectly
+invalidate untouched bin arrays.

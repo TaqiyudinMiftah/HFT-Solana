@@ -1,5 +1,10 @@
 use thiserror::Error;
 
+#[cfg(feature = "meteora-dlmm")]
+use std::collections::HashMap;
+#[cfg(feature = "meteora-dlmm")]
+use solana_sdk_v2::{account::Account, pubkey::Pubkey};
+
 use crate::{
     decode::{
         mint::{inspect_mint, MintInspectError, MintQuoteInfo},
@@ -69,6 +74,21 @@ pub enum SnapshotError {
     VaultNotInitialized,
     #[error("mint has unsupported or unresolved quote-affecting extensions")]
     UnsupportedMintBehavior,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error("DLMM pair mint does not match configured mint")]
+    DlmmMintMismatch,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error("DLMM quote snapshot needs at least one bin array")]
+    DlmmMissingBinArray,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error("DLMM bin array belongs to a different pair")]
+    DlmmBinArrayPairMismatch,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error("DLMM bitmap extension belongs to a different pair")]
+    DlmmBitmapPairMismatch,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error("duplicate DLMM bin-array account")]
+    DlmmDuplicateBinArray,
 }
 
 impl From<MintInspectError> for SnapshotError {
@@ -304,6 +324,86 @@ pub fn assemble_pump_state_auto(
             amm_max_configurable_creator_fee_bps: amm_global.max_configurable_creator_fee_bps,
         },
     ))
+}
+
+
+#[cfg(feature = "meteora-dlmm")]
+pub fn assemble_meteora_dlmm_quote_state(
+    lb_pair_key: [u8; 32],
+    lb_pair_data: &[u8],
+    bin_arrays: &[([u8; 32], &[u8])],
+    bitmap_extension_data: Option<&[u8]>,
+    mint_x_key: [u8; 32],
+    mint_x_owner: [u8; 32],
+    mint_x_data: &[u8],
+    mint_y_key: [u8; 32],
+    mint_y_owner: [u8; 32],
+    mint_y_data: &[u8],
+) -> Result<crate::quote::meteora_dlmm::MeteoraDlmmQuoteState, SnapshotError> {
+    if bin_arrays.is_empty() {
+        return Err(SnapshotError::DlmmMissingBinArray);
+    }
+
+    let pair = crate::decode::meteora_dlmm::decode_lb_pair(lb_pair_data)?;
+    let (mint_x_info, mint_y_info) = inspect_pair_mints(mint_x_data, mint_y_data)?;
+    require_quote_safe(mint_x_info.safety)?;
+    require_quote_safe(mint_y_info.safety)?;
+
+    if pair.token_x_mint.to_bytes() != mint_x_key || pair.token_y_mint.to_bytes() != mint_y_key {
+        return Err(SnapshotError::DlmmMintMismatch);
+    }
+
+    let pair_pubkey = Pubkey::new_from_array(lb_pair_key);
+    let mut decoded_bin_arrays = HashMap::with_capacity(bin_arrays.len());
+
+    for (bin_array_key, data) in bin_arrays {
+        let bin_array = crate::decode::meteora_dlmm::decode_bin_array(data)?;
+        if bin_array.lb_pair.to_bytes() != lb_pair_key {
+            return Err(SnapshotError::DlmmBinArrayPairMismatch);
+        }
+
+        if decoded_bin_arrays
+            .insert(Pubkey::new_from_array(*bin_array_key), bin_array)
+            .is_some()
+        {
+            return Err(SnapshotError::DlmmDuplicateBinArray);
+        }
+    }
+
+    let bitmap_extension = match bitmap_extension_data {
+        Some(data) => {
+            let bitmap = crate::decode::meteora_dlmm::decode_bitmap_extension(data)?;
+            if bitmap.lb_pair.to_bytes() != lb_pair_key {
+                return Err(SnapshotError::DlmmBitmapPairMismatch);
+            }
+            Some(bitmap)
+        }
+        None => None,
+    };
+
+    let mint_x_account = Account {
+        lamports: 0,
+        data: mint_x_data.to_vec(),
+        owner: Pubkey::new_from_array(mint_x_owner),
+        executable: false,
+        rent_epoch: 0,
+    };
+    let mint_y_account = Account {
+        lamports: 0,
+        data: mint_y_data.to_vec(),
+        owner: Pubkey::new_from_array(mint_y_owner),
+        executable: false,
+        rent_epoch: 0,
+    };
+
+    Ok(crate::quote::meteora_dlmm::MeteoraDlmmQuoteState {
+        lb_pair_pubkey: pair_pubkey,
+        lb_pair: pair,
+        bin_arrays: decoded_bin_arrays,
+        bitmap_extension,
+        mint_x_account,
+        mint_y_account,
+    })
 }
 
 pub fn assemble_raydium_state(
