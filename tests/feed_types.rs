@@ -18,7 +18,9 @@ fn feed_events_preserve_bank_identity() {
             assert_eq!(banks[0].bank_id, 55);
             assert_eq!(reason, "reconnect");
         }
-        FeedEvent::Account(_) => panic!("unexpected account event"),
+        FeedEvent::Account(_) | FeedEvent::SlotComplete { .. } => {
+            panic!("unexpected feed event")
+        }
     }
 }
 
@@ -39,4 +41,25 @@ fn account_update_carries_version_inputs() {
     assert_eq!(update.write_version, 20);
     assert_eq!(update.generation, 30);
     assert_eq!(update.bank_id, Some(40));
+}
+
+
+#[test]
+fn slot_complete_preserves_exact_bank_identity() {
+    let event = FeedEvent::SlotComplete {
+        bank: BankIdentity {
+            generation: 8,
+            slot: 101,
+            bank_id: 56,
+        },
+    };
+
+    match event {
+        FeedEvent::SlotComplete { bank } => {
+            assert_eq!(bank.generation, 8);
+            assert_eq!(bank.slot, 101);
+            assert_eq!(bank.bank_id, 56);
+        }
+        _ => panic!("unexpected feed event"),
+    }
 }

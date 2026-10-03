@@ -28,4 +28,10 @@ pub enum FeedEvent {
         banks: Vec<BankIdentity>,
         reason: String,
     },
+    /// Yellowstone reports this after all account writes for one bank/slot
+    /// have been delivered. DLMM uses it as a coherence fence before
+    /// publishing a snapshot assembled from independently updated bin arrays.
+    SlotComplete {
+        bank: BankIdentity,
+    },
 }

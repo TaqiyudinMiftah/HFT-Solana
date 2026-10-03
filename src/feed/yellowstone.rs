@@ -5,8 +5,8 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use yellowstone_grpc_client::{GeyserGrpcClient, ReconnectEvent};
 use yellowstone_grpc_proto::prelude::{
-    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest,
-    SubscribeRequestFilterAccounts,
+    subscribe_update::UpdateOneof, CommitmentLevel, SlotStatus, SubscribeRequest,
+    SubscribeRequestFilterAccounts, SubscribeRequestFilterSlots,
 };
 
 use super::{AccountUpdate, BankIdentity, FeedEvent};
@@ -54,8 +54,18 @@ pub fn build_subscribe_request(config: &YellowstoneConfig) -> SubscribeRequest {
         },
     );
 
+    let mut slots = HashMap::new();
+    slots.insert(
+        "slot_fence".to_owned(),
+        SubscribeRequestFilterSlots {
+            filter_by_commitment: Some(false),
+            interslot_updates: Some(true),
+        },
+    );
+
     SubscribeRequest {
         accounts,
+        slots,
         commitment: Some(CommitmentLevel::Processed as i32),
         ..Default::default()
     }
@@ -91,23 +101,44 @@ pub async fn run_account_feed(
     while let Some(message) = stream.next().await {
         match message {
             Ok(ReconnectEvent::Update { generation, update }) => {
-                let Some(UpdateOneof::Account(account_update)) = update.update_oneof else {
-                    continue;
-                };
-                let Some(account) = account_update.account else {
-                    continue;
-                };
+                let event = match update.update_oneof {
+                    Some(UpdateOneof::Account(account_update)) => {
+                        let Some(account) = account_update.account else {
+                            continue;
+                        };
 
-                let event = FeedEvent::Account(AccountUpdate {
-                    pubkey: array32(&account.pubkey)?,
-                    owner: array32(&account.owner)?,
-                    slot: account_update.slot,
-                    write_version: account.write_version,
-                    generation,
-                    bank_id: account_update.bank_id,
-                    is_startup: account_update.is_startup,
-                    data: account.data,
-                });
+                        FeedEvent::Account(AccountUpdate {
+                            pubkey: array32(&account.pubkey)?,
+                            owner: array32(&account.owner)?,
+                            slot: account_update.slot,
+                            write_version: account.write_version,
+                            generation,
+                            bank_id: account_update.bank_id,
+                            is_startup: account_update.is_startup,
+                            data: account.data,
+                        })
+                    }
+                    Some(UpdateOneof::Slot(slot_update)) => {
+                        let Ok(status) = SlotStatus::try_from(slot_update.status) else {
+                            continue;
+                        };
+                        if status != SlotStatus::SlotCompleted {
+                            continue;
+                        }
+                        let Some(bank_id) = slot_update.bank_id else {
+                            continue;
+                        };
+
+                        FeedEvent::SlotComplete {
+                            bank: BankIdentity {
+                                generation,
+                                slot: slot_update.slot,
+                                bank_id,
+                            },
+                        }
+                    }
+                    _ => continue,
+                };
 
                 output
                     .send(event)

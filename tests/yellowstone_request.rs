@@ -23,4 +23,8 @@ fn account_request_is_processed_and_exactly_filtered() {
     let filter = request.accounts.get("hft").unwrap();
     assert_eq!(filter.account, config.filter.accounts);
     assert_eq!(filter.owner, config.filter.owners);
+
+    let slots = request.slots.get("slot_fence").unwrap();
+    assert_eq!(slots.filter_by_commitment, Some(false));
+    assert_eq!(slots.interslot_updates, Some(true));
 }
