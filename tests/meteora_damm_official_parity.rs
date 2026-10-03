@@ -37,14 +37,8 @@ fn compounding_pool(token_a_amount: u64, token_b_amount: u64) -> Pool {
         token_b_amount,
         sqrt_price,
         ..
-    } = get_initial_pool_information(
-        CollectFeeMode::Compounding,
-        0,
-        0,
-        sqrt_price,
-        liquidity,
-    )
-    .expect("valid initial pool information");
+    } = get_initial_pool_information(CollectFeeMode::Compounding, 0, 0, sqrt_price, liquidity)
+        .expect("valid initial pool information");
 
     Pool {
         collect_fee_mode: CollectFeeMode::Compounding.into(),
@@ -99,24 +93,13 @@ fn wrapper_matches_official_sdk_for_both_directions() {
 
     for (direction, a_to_b) in [(Direction::AtoB, true), (Direction::BtoA, false)] {
         let direct = meteora_damm_sdk::quote_exact_in::get_quote(
-            &pool,
-            timestamp,
-            slot,
-            amount_in,
-            a_to_b,
-            false,
+            &pool, timestamp, slot, amount_in, a_to_b, false,
         )
         .unwrap();
 
-        let wrapped = quote_exact_in_official(
-            &pool,
-            amount_in,
-            direction,
-            timestamp,
-            slot,
-            version(),
-        )
-        .unwrap();
+        let wrapped =
+            quote_exact_in_official(&pool, amount_in, direction, timestamp, slot, version())
+                .unwrap();
 
         let expected_fee = direct
             .claiming_fee
