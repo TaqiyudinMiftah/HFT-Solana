@@ -35,14 +35,8 @@ fn compounding_pool(token_a_amount: u64, token_b_amount: u64) -> Pool {
         token_b_amount,
         sqrt_price,
         ..
-    } = get_initial_pool_information(
-        CollectFeeMode::Compounding,
-        0,
-        0,
-        sqrt_price,
-        liquidity,
-    )
-    .unwrap();
+    } = get_initial_pool_information(CollectFeeMode::Compounding, 0, 0, sqrt_price, liquidity)
+        .unwrap();
 
     Pool {
         collect_fee_mode: CollectFeeMode::Compounding.into(),
