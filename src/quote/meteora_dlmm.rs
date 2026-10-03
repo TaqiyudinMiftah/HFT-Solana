@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use meteora_dlmm_commons::{
     dlmm::accounts::{BinArray, BinArrayBitmapExtension, LbPair},
-    quote::quote_exact_in,
+    quote::{get_bin_array_pubkeys_for_swap, quote_exact_in},
 };
 use solana_sdk_v2::{account::Account, clock::Clock, pubkey::Pubkey};
 
@@ -19,6 +19,37 @@ pub struct MeteoraDlmmQuoteState {
     pub bitmap_extension: Option<BinArrayBitmapExtension>,
     pub mint_x_account: Account,
     pub mint_y_account: Account,
+}
+
+
+pub fn discover_bin_array_pubkeys(
+    state: &MeteoraDlmmQuoteState,
+    direction: Direction,
+    take_count: u8,
+) -> Result<Vec<Pubkey>, QuoteError> {
+    if take_count == 0 {
+        return Ok(Vec::new());
+    }
+
+    get_bin_array_pubkeys_for_swap(
+        state.lb_pair_pubkey,
+        &state.lb_pair,
+        state.bitmap_extension.as_ref(),
+        matches!(direction, Direction::AtoB),
+        take_count,
+    )
+    .map_err(|_| QuoteError::MeteoraDlmmQuote)
+}
+
+pub fn missing_bin_array_pubkeys(
+    state: &MeteoraDlmmQuoteState,
+    direction: Direction,
+    take_count: u8,
+) -> Result<Vec<Pubkey>, QuoteError> {
+    Ok(discover_bin_array_pubkeys(state, direction, take_count)?
+        .into_iter()
+        .filter(|pubkey| !state.bin_arrays.contains_key(pubkey))
+        .collect())
 }
 
 pub fn quote_exact_in_official(

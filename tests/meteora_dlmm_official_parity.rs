@@ -4,7 +4,10 @@ use std::{collections::HashMap, str::FromStr};
 
 use hft_solana::{
     decode::meteora_dlmm::{decode_bin_array, decode_lb_pair},
-    quote::meteora_dlmm::{quote_exact_in_official, MeteoraDlmmQuoteState},
+    quote::meteora_dlmm::{
+        discover_bin_array_pubkeys, missing_bin_array_pubkeys, quote_exact_in_official,
+        MeteoraDlmmQuoteState,
+    },
     types::{Direction, StateVersion},
 };
 use meteora_dlmm_commons::quote::quote_exact_in;
@@ -177,4 +180,32 @@ fn zero_input_is_rejected_before_official_quote() {
         version(),
     )
     .is_err());
+}
+
+
+#[test]
+fn discovers_official_bin_array_window() {
+    let state = fixture_state();
+
+    let required = discover_bin_array_pubkeys(&state, Direction::AtoB, 2).unwrap();
+    assert_eq!(
+        required,
+        vec![
+            Pubkey::from_str(BIN_ARRAY_2).unwrap(),
+            Pubkey::from_str(BIN_ARRAY_1).unwrap(),
+        ]
+    );
+    assert!(missing_bin_array_pubkeys(&state, Direction::AtoB, 2)
+        .unwrap()
+        .is_empty());
+
+    let mut incomplete = state.clone();
+    incomplete
+        .bin_arrays
+        .remove(&Pubkey::from_str(BIN_ARRAY_1).unwrap());
+
+    assert_eq!(
+        missing_bin_array_pubkeys(&incomplete, Direction::AtoB, 2).unwrap(),
+        vec![Pubkey::from_str(BIN_ARRAY_1).unwrap()]
+    );
 }

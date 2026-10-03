@@ -115,7 +115,7 @@ fn raw_snapshot_rejects_configured_mint_mismatch() {
     let mint_y_key = Pubkey::from_str(TOKEN_Y_MINT).unwrap();
     let token_program = Pubkey::from_str(TOKEN_PROGRAM).unwrap();
 
-    let error = assemble_meteora_dlmm_quote_state(
+    let result = assemble_meteora_dlmm_quote_state(
         pair_key.to_bytes(),
         pair,
         &[(bin_1_key.to_bytes(), bin_1.as_slice())],
@@ -126,8 +126,7 @@ fn raw_snapshot_rejects_configured_mint_mismatch() {
         mint_y_key.to_bytes(),
         token_program.to_bytes(),
         mint_y,
-    )
-    .unwrap_err();
+    );
 
-    assert_eq!(error, SnapshotError::DlmmMintMismatch);
+    assert!(matches!(result, Err(SnapshotError::DlmmMintMismatch)));
 }
