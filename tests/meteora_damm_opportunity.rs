@@ -99,7 +99,7 @@ fn meteora_cycle_reaches_opportunity_engine_with_quote_context() {
         }],
     );
 
-    let store = ActivePoolStore::new(2, 2);
+    let mut store = ActivePoolStore::new(2, 2);
 
     // Pool 0 values A at roughly 2 B, while pool 1 is approximately 1:1.
     // A -> B on pool 0 then B -> A on pool 1 is therefore profitable before
