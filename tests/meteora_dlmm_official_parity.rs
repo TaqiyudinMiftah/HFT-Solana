@@ -13,12 +13,7 @@ use solana_sdk_v2::{account::Account, clock::Clock, pubkey::Pubkey};
 const LB_PAIR: &str = "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd";
 const BIN_ARRAY_1: &str = "338HBraHxVupeftangX6jySecbND4osxcJjjMSW7qmMs";
 const BIN_ARRAY_2: &str = "28BX6QycwTKx3CqswpJQs7hJCmoUs469Qt4maKMdhgmQ";
-const TOKEN_X_MINT: &str = "BBZU4HYvY4qMGE5MbWsVxGweGBZJqGRsgH8tAEAKusNk";
-const TOKEN_Y_MINT: &str = "31iVdsS8fkURXg737XQwYhXVAuGv2vNYHjyDiURStkaU";
 const TOKEN_PROGRAM: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-
-const FIXTURE: &str =
-    "../fixtures/meteora_dlmm/9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd";
 
 fn version() -> StateVersion {
     StateVersion {

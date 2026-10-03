@@ -34,8 +34,7 @@ pub fn quote_exact_in_official(
         return Err(QuoteError::ZeroInput);
     }
 
-    let unix_timestamp =
-        i64::try_from(current_timestamp).map_err(|_| QuoteError::MathOverflow)?;
+    let unix_timestamp = i64::try_from(current_timestamp).map_err(|_| QuoteError::MathOverflow)?;
     let clock = Clock {
         slot: current_slot,
         epoch: current_epoch,
