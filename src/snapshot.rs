@@ -1,9 +1,9 @@
 use thiserror::Error;
 
 #[cfg(feature = "meteora-dlmm")]
-use std::collections::HashMap;
-#[cfg(feature = "meteora-dlmm")]
 use solana_sdk_v2::{account::Account, pubkey::Pubkey};
+#[cfg(feature = "meteora-dlmm")]
+use std::collections::HashMap;
 
 use crate::{
     decode::{
@@ -325,7 +325,6 @@ pub fn assemble_pump_state_auto(
         },
     ))
 }
-
 
 #[cfg(feature = "meteora-dlmm")]
 pub fn assemble_meteora_dlmm_quote_state(
