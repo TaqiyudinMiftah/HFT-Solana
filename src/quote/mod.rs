@@ -1,5 +1,7 @@
 pub mod cpmm;
 pub mod meteora_damm;
+#[cfg(feature = "meteora-dlmm")]
+pub mod meteora_dlmm;
 pub mod pump;
 pub mod pump_identity;
 pub mod raydium;
@@ -39,4 +41,6 @@ pub enum QuoteError {
     MathOverflow,
     #[error("Meteora DAMM v2 quote rejected by official math")]
     MeteoraDammQuote,
+    #[error("Meteora DLMM quote rejected by official math")]
+    MeteoraDlmmQuote,
 }

@@ -1,4 +1,6 @@
 pub mod meteora_damm;
+#[cfg(feature = "meteora-dlmm")]
+pub mod meteora_dlmm;
 pub mod mint;
 pub mod pump;
 pub mod pump_fee;

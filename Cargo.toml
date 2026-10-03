@@ -11,6 +11,10 @@ meteora-damm = [
     "dep:meteora-cp-amm",
     "dep:meteora-damm-sdk",
 ]
+meteora-dlmm = [
+    "dep:meteora-dlmm-commons",
+    "dep:solana-sdk-v2",
+]
 yellowstone = [
     "meteora-damm",
     "dep:futures",
@@ -29,9 +33,11 @@ futures = { version = "0.3", optional = true }
 smallvec = "1"
 meteora-cp-amm = { package = "cp-amm", git = "https://github.com/MeteoraAg/damm-v2", rev = "a85c926607433f23f0ea60f4ca7b1ae92f4156cb", features = ["no-entrypoint", "no-custom-entrypoint"], optional = true }
 meteora-damm-sdk = { package = "rust-sdk", git = "https://github.com/MeteoraAg/damm-v2", rev = "a85c926607433f23f0ea60f4ca7b1ae92f4156cb", optional = true }
+meteora-dlmm-commons = { package = "commons", git = "https://github.com/MeteoraAg/dlmm-sdk", rev = "576919e3e4368e542c402f000b4264724f7f23ec", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 solana-pubkey = { version = "3.0.0", features = ["curve25519", "sha2"] }
+solana-sdk-v2 = { package = "solana-sdk", version = "2.1.0", optional = true }
 spl-token-2022-interface = "3.1"
 thiserror = "2"
 tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "sync"], optional = true }
