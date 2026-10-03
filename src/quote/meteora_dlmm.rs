@@ -21,7 +21,6 @@ pub struct MeteoraDlmmQuoteState {
     pub mint_y_account: Account,
 }
 
-
 pub fn discover_bin_array_pubkeys(
     state: &MeteoraDlmmQuoteState,
     direction: Direction,

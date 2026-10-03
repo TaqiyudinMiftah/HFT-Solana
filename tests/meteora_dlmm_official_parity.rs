@@ -182,7 +182,6 @@ fn zero_input_is_rejected_before_official_quote() {
     .is_err());
 }
 
-
 #[test]
 fn discovers_official_bin_array_window() {
     let state = fixture_state();
