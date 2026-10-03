@@ -1,0 +1,63 @@
+{
+  "runtime": {
+    "max_versions_per_account": 8,
+    "max_hot_slot_skew": 1,
+    "dirty_capacity": 8192,
+    "feed_channel_capacity": 8192,
+    "opportunity_channel_capacity": 2048,
+    "filter_name": "hft-paper"
+  },
+  "tokens": [
+    "REPLACE_WITH_QUOTE_MINT",
+    "REPLACE_WITH_BASE_MINT"
+  ],
+  "pools": [
+    {
+      "kind": "pump",
+      "pool": "REPLACE_WITH_PUMP_POOL",
+      "fee_config": "REPLACE_WITH_PUMP_FEE_CONFIG",
+      "pump_global": "REPLACE_WITH_PUMP_GLOBAL",
+      "pump_amm_global_config": "REPLACE_WITH_PUMP_AMM_GLOBAL_CONFIG",
+      "base_vault": "REPLACE_WITH_PUMP_BASE_VAULT",
+      "quote_vault": "REPLACE_WITH_PUMP_QUOTE_VAULT",
+      "base_mint": "REPLACE_WITH_BASE_MINT",
+      "quote_mint": "REPLACE_WITH_QUOTE_MINT"
+    },
+    {
+      "kind": "raydium_cpmm",
+      "pool": "REPLACE_WITH_RAYDIUM_POOL",
+      "amm_config": "REPLACE_WITH_RAYDIUM_AMM_CONFIG",
+      "vault_0": "REPLACE_WITH_RAYDIUM_VAULT_0",
+      "vault_1": "REPLACE_WITH_RAYDIUM_VAULT_1",
+      "mint_0": "REPLACE_WITH_BASE_MINT",
+      "mint_1": "REPLACE_WITH_QUOTE_MINT"
+    }
+  ],
+  "cycles": [
+    {
+      "start_token": 0,
+      "edges": [
+        {
+          "pool": 0,
+          "direction": "b_to_a",
+          "from_token": 0,
+          "to_token": 1
+        },
+        {
+          "pool": 1,
+          "direction": "a_to_b",
+          "from_token": 1,
+          "to_token": 0
+        }
+      ],
+      "search": {
+        "initial_seed": 10000000,
+        "minimum_probe": 1000000,
+        "max_size": 1000000000,
+        "minimum_effective_profit": 1000,
+        "max_slot_skew": 1,
+        "expected_cu": 140000
+      }
+    }
+  ]
+}
