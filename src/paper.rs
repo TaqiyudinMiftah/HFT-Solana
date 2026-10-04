@@ -85,6 +85,69 @@ impl PaperPipeline {
         self.process_outputs(outputs, created_ns)
     }
 
+    /// Apply one feed event to reactor/store without running cycle search.
+    ///
+    /// Used during startup bootstrap/catch-up so partially seeded state cannot
+    /// mutate OpportunityEngine dedup state or emit a stale opportunity.
+    pub fn seed_event(&mut self, event: FeedEvent) -> Vec<DlmmRefreshRequest> {
+        self.stats.feed_events = self.stats.feed_events.saturating_add(1);
+        let outputs = self.reactor.process(event);
+        self.seed_outputs(outputs)
+    }
+
+    /// Publish reactor outputs without dirty-queue/search side effects.
+    pub fn seed_outputs(&mut self, outputs: Vec<ReactorOutput>) -> Vec<DlmmRefreshRequest> {
+        let mut refresh_requests = Vec::new();
+
+        for output in outputs {
+            let pool_id = output_pool_id(&output);
+
+            #[cfg(feature = "meteora-dlmm")]
+            if let ReactorOutput::PoolInvalidated {
+                reason: crate::reactor::ReactorInvalidation::DlmmIncompleteBinWindow { missing },
+                ..
+            } = &output
+            {
+                refresh_requests.push(DlmmRefreshRequest {
+                    pool_id,
+                    missing_accounts: missing.clone(),
+                });
+            }
+
+            match output {
+                ReactorOutput::PoolUpdated { pool_id, state } => {
+                    self.stats.reactor_updates = self.stats.reactor_updates.saturating_add(1);
+                    self.store.publish(pool_id, state);
+                }
+                ReactorOutput::PoolInvalidated { pool_id, .. } => {
+                    self.stats.reactor_invalidations =
+                        self.stats.reactor_invalidations.saturating_add(1);
+                    self.store.invalidate(pool_id);
+                }
+            }
+        }
+
+        refresh_requests
+    }
+
+    /// Evaluate every currently active pool once after bootstrap catch-up.
+    ///
+    /// Cycle-runtime dedup ensures cycles shared by multiple pools are emitted
+    /// at most once for the final captured state vector.
+    pub fn evaluate_ready_pools(&mut self, created_ns: u64) -> PaperBatch {
+        let pool_count = self.engine.graph().pool_to_cycles.len();
+        let mut batch = PaperBatch::default();
+
+        for index in 0..pool_count {
+            let pool_id: PoolId = index.try_into().expect("pool registry exceeds u32");
+            if self.store.is_ready(pool_id) {
+                self.evaluate_pool(pool_id, created_ns, &mut batch);
+            }
+        }
+
+        batch
+    }
+
     /// Apply already-built reactor outputs.
     ///
     /// This is public primarily for deterministic replay/tests where raw

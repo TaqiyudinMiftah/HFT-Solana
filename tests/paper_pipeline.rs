@@ -270,3 +270,35 @@ fn dlmm_incomplete_window_becomes_refresh_request() {
     assert_eq!(batch.dlmm_refresh_requests[0].pool_id, 0);
     assert_eq!(batch.dlmm_refresh_requests[0].missing_accounts, missing);
 }
+
+
+#[test]
+fn bootstrap_seed_defers_search_until_final_state_is_ready() {
+    let reactor = PaperStateReactor::new(2, 0);
+    let store = ActivePoolStore::new(2, 2);
+    let mut pipeline = PaperPipeline::new(reactor, store, engine());
+
+    let refresh = pipeline.seed_outputs(vec![
+        ReactorOutput::PoolUpdated {
+            pool_id: 0,
+            state: pump_state(),
+        },
+        ReactorOutput::PoolUpdated {
+            pool_id: 1,
+            state: raydium_state(),
+        },
+    ]);
+
+    assert!(refresh.is_empty());
+    assert_eq!(pipeline.stats().opportunities_emitted, 0);
+    assert_eq!(pipeline.stats().pools_evaluated, 0);
+
+    let batch = pipeline.evaluate_ready_pools(123);
+    assert_eq!(batch.opportunities.len(), 1);
+    assert!(batch.opportunities[0].expected_effective_profit > 0);
+    assert_eq!(pipeline.stats().opportunities_emitted, 1);
+
+    // A second sweep over the same final state vector is deduplicated.
+    let duplicate = pipeline.evaluate_ready_pools(124);
+    assert!(duplicate.opportunities.is_empty());
+}
