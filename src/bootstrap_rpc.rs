@@ -292,10 +292,8 @@ mod tests {
 
     fn empty_pipeline() -> PaperPipeline {
         use crate::{
-            active_store::ActivePoolStore,
-            graph::GraphIndex,
-            opportunity_engine::OpportunityEngine,
-            reactor::PaperStateReactor,
+            active_store::ActivePoolStore, graph::GraphIndex,
+            opportunity_engine::OpportunityEngine, reactor::PaperStateReactor,
         };
 
         PaperPipeline::new(
