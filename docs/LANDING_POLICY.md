@@ -85,3 +85,27 @@ a small opportunity.
 Fixed `relay_tip` remains supported for deterministic replay and backward
 compatibility. If `relay_tip_share_bps` is present, it takes precedence over
 the fixed value.
+
+
+## Calibration telemetry
+
+The paper runtime aggregates the quantities needed to calibrate the landing
+model without sending transactions:
+
+- selected effective edge total;
+- priority-fee total;
+- relay-tip total;
+- retained net-if-landed total;
+- relay-tip total per provider;
+- aggregate selected tip share in basis points;
+- expected-value total.
+
+The aggregate tip share is:
+
+```text
+10000 * sum(selected relay tips) / sum(selected effective profit)
+```
+
+This gives a directly comparable paper metric for the observed Jito / Helius
+tip-to-edge ratios used during reverse engineering. It is descriptive only;
+it does not estimate real landing success without labeled outcome data.

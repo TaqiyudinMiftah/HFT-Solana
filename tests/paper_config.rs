@@ -305,7 +305,7 @@ fn landing_policy_builds_adaptive_tip_candidate_and_validates_clamps() {
     let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
     assert!(matches!(
         config.build(),
-        Err(PaperConfigError::LandingTipShareOutOfRange { .. })
+        Err(PaperConfigError::LandingCandidateTipShareOutOfRange { .. })
     ));
 
     value["landing"]["candidates"][0]["relay_tip_share_bps"] = json!(2500);

@@ -138,9 +138,29 @@ fn paper_stats_track_provider_mix_skips_and_ev() {
     assert_eq!(stats.jito, 1);
     assert_eq!(stats.helius_sender, 0);
     assert_eq!(
+        stats.effective_profit_total,
+        direct.effective_profit + jito.effective_profit
+    );
+    assert_eq!(
+        stats.priority_fee_total,
+        direct.priority_fee as u128 + jito.priority_fee as u128
+    );
+    assert_eq!(
+        stats.relay_tip_total,
+        direct.relay_tip as u128 + jito.relay_tip as u128
+    );
+    assert_eq!(
+        stats.net_if_landed_total,
+        direct.net_if_landed + jito.net_if_landed
+    );
+    assert_eq!(stats.direct_relay_tip_total, direct.relay_tip as u128);
+    assert_eq!(stats.jito_relay_tip_total, jito.relay_tip as u128);
+    assert_eq!(stats.helius_relay_tip_total, 0);
+    assert_eq!(
         stats.expected_value_total,
         direct.expected_value + jito.expected_value
     );
+    assert_eq!(stats.selected_tip_share_bps(), 1_000);
 }
 
 #[test]

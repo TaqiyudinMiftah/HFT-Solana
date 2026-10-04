@@ -222,7 +222,7 @@ pub enum PaperConfigError {
     #[error("landing candidate {candidate} success_probability_bps must be <= 10000, got {value}")]
     LandingProbabilityOutOfRange { candidate: usize, value: u16 },
     #[error("landing candidate {candidate} relay_tip_share_bps must be <= 10000, got {value}")]
-    LandingTipShareOutOfRange { candidate: usize, value: u16 },
+    LandingCandidateTipShareOutOfRange { candidate: usize, value: u16 },
     #[error("landing candidate {candidate} minimum_relay_tip exceeds maximum_relay_tip")]
     LandingTipClampInvalid { candidate: usize },
     #[error("cycle {cycle} references pool {pool}, but only {pool_count} pools exist")]
@@ -381,7 +381,7 @@ fn build_landing_policy(config: LandingConfig) -> Result<BuiltLandingPolicy, Pap
 
             if let Some(share_bps) = candidate.relay_tip_share_bps {
                 if share_bps > 10_000 {
-                    return Err(PaperConfigError::LandingTipShareOutOfRange {
+                    return Err(PaperConfigError::LandingCandidateTipShareOutOfRange {
                         candidate: index,
                         value: share_bps,
                     });

@@ -47,6 +47,7 @@ pub struct LandingChoice {
     pub success_probability_bps: u16,
     pub priority_fee: u64,
     pub relay_tip: u64,
+    pub effective_profit: i128,
     pub net_if_landed: i128,
     pub expected_value: i128,
 }
@@ -59,6 +60,13 @@ pub struct LandingPaperStats {
     pub direct: u64,
     pub jito: u64,
     pub helius_sender: u64,
+    pub effective_profit_total: i128,
+    pub priority_fee_total: u128,
+    pub relay_tip_total: u128,
+    pub net_if_landed_total: i128,
+    pub direct_relay_tip_total: u128,
+    pub jito_relay_tip_total: u128,
+    pub helius_relay_tip_total: u128,
     pub expected_value_total: i128,
 }
 
@@ -66,15 +74,38 @@ impl LandingPaperStats {
     pub fn record_choice(&mut self, choice: LandingChoice) {
         self.evaluated = self.evaluated.saturating_add(1);
         self.selected = self.selected.saturating_add(1);
+        self.effective_profit_total = self
+            .effective_profit_total
+            .saturating_add(choice.effective_profit);
+        self.priority_fee_total = self
+            .priority_fee_total
+            .saturating_add(choice.priority_fee as u128);
+        self.relay_tip_total = self.relay_tip_total.saturating_add(choice.relay_tip as u128);
+        self.net_if_landed_total = self
+            .net_if_landed_total
+            .saturating_add(choice.net_if_landed);
         self.expected_value_total = self
             .expected_value_total
             .saturating_add(choice.expected_value);
 
         match choice.provider {
-            LandingProvider::Direct => self.direct = self.direct.saturating_add(1),
-            LandingProvider::Jito => self.jito = self.jito.saturating_add(1),
+            LandingProvider::Direct => {
+                self.direct = self.direct.saturating_add(1);
+                self.direct_relay_tip_total = self
+                    .direct_relay_tip_total
+                    .saturating_add(choice.relay_tip as u128);
+            }
+            LandingProvider::Jito => {
+                self.jito = self.jito.saturating_add(1);
+                self.jito_relay_tip_total = self
+                    .jito_relay_tip_total
+                    .saturating_add(choice.relay_tip as u128);
+            }
             LandingProvider::HeliusSender => {
-                self.helius_sender = self.helius_sender.saturating_add(1)
+                self.helius_sender = self.helius_sender.saturating_add(1);
+                self.helius_relay_tip_total = self
+                    .helius_relay_tip_total
+                    .saturating_add(choice.relay_tip as u128);
             }
         }
     }
@@ -82,6 +113,18 @@ impl LandingPaperStats {
     pub fn record_skip(&mut self) {
         self.evaluated = self.evaluated.saturating_add(1);
         self.skipped = self.skipped.saturating_add(1);
+    }
+
+    pub fn selected_tip_share_bps(&self) -> u64 {
+        if self.effective_profit_total <= 0 {
+            return 0;
+        }
+
+        self.relay_tip_total
+            .saturating_mul(BPS_DENOMINATOR as u128)
+            .checked_div(self.effective_profit_total as u128)
+            .unwrap_or(0)
+            .min(u64::MAX as u128) as u64
     }
 }
 
@@ -159,6 +202,7 @@ pub fn evaluate_landing_candidate(
         success_probability_bps: candidate.success_probability_bps,
         priority_fee: candidate.priority_fee,
         relay_tip,
+        effective_profit: opportunity.expected_effective_profit,
         net_if_landed,
         expected_value,
     })

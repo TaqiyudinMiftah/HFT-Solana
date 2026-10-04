@@ -354,7 +354,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_stats.event_process_ns_total / output_stats.events_processed
     };
     eprintln!(
-        "paper stopped: feed_events={} updates={} invalidations={} dirty_queued={} dirty_collapsed={} queue_full={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={} loop_events={} event_process_ns_total={} event_process_ns_avg={} event_process_ns_max={} landing_evaluated={} landing_selected={} landing_skipped={} landing_direct={} landing_jito={} landing_helius={} landing_ev_total={}",
+        "paper stopped: feed_events={} updates={} invalidations={} dirty_queued={} dirty_collapsed={} queue_full={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={} loop_events={} event_process_ns_total={} event_process_ns_avg={} event_process_ns_max={} landing_evaluated={} landing_selected={} landing_skipped={} landing_direct={} landing_jito={} landing_helius={} landing_edge_total={} landing_priority_fee_total={} landing_relay_tip_total={} landing_net_if_landed_total={} landing_direct_tip_total={} landing_jito_tip_total={} landing_helius_tip_total={} landing_tip_share_bps={} landing_ev_total={}",
         stats.feed_events,
         stats.reactor_updates,
         stats.reactor_invalidations,
@@ -379,6 +379,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         landing_stats.direct,
         landing_stats.jito,
         landing_stats.helius_sender,
+        landing_stats.effective_profit_total,
+        landing_stats.priority_fee_total,
+        landing_stats.relay_tip_total,
+        landing_stats.net_if_landed_total,
+        landing_stats.direct_relay_tip_total,
+        landing_stats.jito_relay_tip_total,
+        landing_stats.helius_relay_tip_total,
+        landing_stats.selected_tip_share_bps(),
         landing_stats.expected_value_total,
     );
 
