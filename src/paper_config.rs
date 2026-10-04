@@ -257,10 +257,7 @@ impl PaperConfig {
             return Err(PaperConfigError::NoCycles);
         }
 
-        let landing = self
-            .landing
-            .map(build_landing_policy)
-            .transpose()?;
+        let landing = self.landing.map(build_landing_policy).transpose()?;
 
         for (field, value) in [
             ("dirty_capacity", self.runtime.dirty_capacity),

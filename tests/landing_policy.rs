@@ -108,12 +108,9 @@ fn invalid_probability_tip_cap_and_low_net_are_rejected() {
         relay_tip: 0,
         failure_fee: 0,
     };
-    assert!(evaluate_landing_candidate(
-        &opportunity(100_000),
-        invalid_probability,
-        config()
-    )
-    .is_none());
+    assert!(
+        evaluate_landing_candidate(&opportunity(100_000), invalid_probability, config()).is_none()
+    );
 
     let invalid_tip_cap = LandingPolicyConfig {
         max_tip_share_bps: 10_001,

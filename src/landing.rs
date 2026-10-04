@@ -45,11 +45,7 @@ pub struct LandingChoice {
     pub expected_value: i128,
 }
 
-fn tip_share_allowed(
-    effective_profit: i128,
-    relay_tip: u64,
-    max_tip_share_bps: u16,
-) -> bool {
+fn tip_share_allowed(effective_profit: i128, relay_tip: u64, max_tip_share_bps: u16) -> bool {
     if effective_profit <= 0 || max_tip_share_bps as u64 > BPS_DENOMINATOR {
         return false;
     }
