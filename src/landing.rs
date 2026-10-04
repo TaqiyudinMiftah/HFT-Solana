@@ -80,7 +80,9 @@ impl LandingPaperStats {
         self.priority_fee_total = self
             .priority_fee_total
             .saturating_add(choice.priority_fee as u128);
-        self.relay_tip_total = self.relay_tip_total.saturating_add(choice.relay_tip as u128);
+        self.relay_tip_total = self
+            .relay_tip_total
+            .saturating_add(choice.relay_tip as u128);
         self.net_if_landed_total = self
             .net_if_landed_total
             .saturating_add(choice.net_if_landed);
