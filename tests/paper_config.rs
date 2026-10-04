@@ -121,7 +121,6 @@ fn rejects_cycle_direction_that_does_not_match_pool_mints() {
     ));
 }
 
-
 #[test]
 fn dlmm_config_subscribes_pair_bins_bitmap_and_mints() {
     let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
@@ -156,5 +155,8 @@ fn dlmm_config_rejects_empty_bin_array_window() {
     }));
 
     let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
-    assert!(matches!(config.build(), Err(PaperConfigError::DlmmNoBinArrays)));
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::DlmmNoBinArrays)
+    ));
 }
