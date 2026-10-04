@@ -43,11 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     if args.next().is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "too many arguments",
-        )
-        .into());
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "too many arguments").into());
     }
 
     let input = fs::read_to_string(path)?;
