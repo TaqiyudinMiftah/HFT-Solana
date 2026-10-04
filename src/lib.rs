@@ -1,4 +1,6 @@
 pub mod active_store;
+#[cfg(feature = "yellowstone")]
+pub mod bootstrap_rpc;
 pub mod decode;
 pub mod feed;
 pub mod graph;

@@ -24,6 +24,8 @@ yellowstone = [
     "dep:yellowstone-grpc-proto",
     "dep:serde",
     "dep:serde_json",
+    "dep:solana-client",
+    "dep:solana-account-decoder-client-types",
 ]
 
 [dependencies]
@@ -37,6 +39,8 @@ meteora-damm-sdk = { package = "rust-sdk", git = "https://github.com/MeteoraAg/d
 meteora-dlmm-commons = { package = "commons", git = "https://github.com/MeteoraAg/dlmm-sdk", rev = "576919e3e4368e542c402f000b4264724f7f23ec", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+solana-account-decoder-client-types = { version = "2.3.13", optional = true }
+solana-client = { version = "2.3.13", optional = true }
 solana-pubkey = { version = "3.0.0", features = ["curve25519", "sha2"] }
 solana-sdk-v2 = { package = "solana-sdk", version = "2.1.0", optional = true }
 spl-token-2022-interface = "3.1"
