@@ -580,7 +580,6 @@ impl PaperStateReactor {
             generation: self.local_generations[pool_id as usize].saturating_add(1),
         })
     }
-
 }
 
 fn snapshot_invalidation(error: SnapshotError) -> ReactorInvalidation {

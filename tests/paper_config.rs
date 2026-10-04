@@ -120,3 +120,41 @@ fn rejects_cycle_direction_that_does_not_match_pool_mints() {
         Err(PaperConfigError::PoolMintMismatch { .. })
     ));
 }
+
+
+#[test]
+fn dlmm_config_subscribes_pair_bins_bitmap_and_mints() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["pools"].as_array_mut().unwrap().push(json!({
+        "kind": "meteora_dlmm",
+        "lb_pair": key(20),
+        "bin_arrays": [key(21), key(22)],
+        "bitmap_extension": key(23),
+        "mint_x": key(24),
+        "mint_y": key(25)
+    }));
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    let built = config.build().unwrap();
+
+    for account in [key(20), key(21), key(22), key(23), key(24), key(25)] {
+        assert!(built.account_filters.contains(&account));
+    }
+    assert_eq!(built.account_filters.len(), 18);
+}
+
+#[test]
+fn dlmm_config_rejects_empty_bin_array_window() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["pools"].as_array_mut().unwrap().push(json!({
+        "kind": "meteora_dlmm",
+        "lb_pair": key(20),
+        "bin_arrays": [],
+        "bitmap_extension": null,
+        "mint_x": key(24),
+        "mint_y": key(25)
+    }));
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(config.build(), Err(PaperConfigError::DlmmNoBinArrays)));
+}

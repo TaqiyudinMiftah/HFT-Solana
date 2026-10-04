@@ -97,7 +97,6 @@ pub fn quote_exact_in_official(
     })
 }
 
-
 pub fn quote_exact_in_at_slot(
     state: &MeteoraDlmmQuoteState,
     amount_in: u64,

@@ -57,7 +57,10 @@ impl std::fmt::Debug for MeteoraDlmmState {
             .field("version", &self.version)
             .field("lb_pair", &self.quote.lb_pair_pubkey.to_string())
             .field("bin_arrays", &self.quote.bin_arrays.len())
-            .field("has_bitmap_extension", &self.quote.bitmap_extension.is_some())
+            .field(
+                "has_bitmap_extension",
+                &self.quote.bitmap_extension.is_some(),
+            )
             .finish()
     }
 }

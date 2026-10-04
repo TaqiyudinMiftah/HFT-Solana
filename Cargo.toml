@@ -17,6 +17,7 @@ meteora-dlmm = [
 ]
 yellowstone = [
     "meteora-damm",
+    "meteora-dlmm",
     "dep:futures",
     "dep:tokio",
     "dep:yellowstone-grpc-client",

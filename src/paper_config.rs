@@ -10,7 +10,8 @@ use crate::{
     opportunity_engine::{CycleSearchConfig, OpportunityEngine},
     paper::PaperPipeline,
     reactor::{
-        MeteoraDammRecipe, PaperStateReactor, PoolRecipe, PumpPoolRecipe, RaydiumPoolRecipe,
+        MeteoraDammRecipe, MeteoraDlmmRecipe, PaperStateReactor, PoolRecipe, PumpPoolRecipe,
+        RaydiumPoolRecipe,
     },
     types::{Direction, TokenId},
 };
@@ -75,6 +76,13 @@ pub enum PoolConfig {
         vault_b: String,
         mint_a: String,
         mint_b: String,
+    },
+    MeteoraDlmm {
+        lb_pair: String,
+        bin_arrays: Vec<String>,
+        bitmap_extension: Option<String>,
+        mint_x: String,
+        mint_y: String,
     },
 }
 
@@ -143,6 +151,8 @@ pub enum PaperConfigError {
     InvalidPubkey { field: &'static str, value: String },
     #[error("cycle {cycle} must contain 2 or 3 edges")]
     InvalidCycleLength { cycle: usize },
+    #[error("Meteora DLMM pool must configure at least one bin array")]
+    DlmmNoBinArrays,
     #[error("cycle {cycle} references pool {pool}, but only {pool_count} pools exist")]
     PoolOutOfRange {
         cycle: usize,
@@ -376,6 +386,54 @@ fn build_pool_recipe(
                 }),
                 accounts,
                 PoolTopology { mint_a, mint_b },
+            ))
+        }
+        PoolConfig::MeteoraDlmm {
+            lb_pair,
+            bin_arrays,
+            bitmap_extension,
+            mint_x,
+            mint_y,
+        } => {
+            if bin_arrays.is_empty() {
+                return Err(PaperConfigError::DlmmNoBinArrays);
+            }
+
+            let lb_pair = parse_key("pools[].lb_pair", lb_pair)?;
+            let bin_arrays = bin_arrays
+                .into_iter()
+                .map(|value| parse_key("pools[].bin_arrays[]", value))
+                .collect::<Result<Vec<_>, _>>()?;
+            let bitmap_extension = bitmap_extension
+                .map(|value| parse_key("pools[].bitmap_extension", value))
+                .transpose()?;
+            let mint_x = parse_key("pools[].mint_x", mint_x)?;
+            let mint_y = parse_key("pools[].mint_y", mint_y)?;
+
+            let mut accounts = Vec::with_capacity(
+                1 + bin_arrays.len() + usize::from(bitmap_extension.is_some()) + 2,
+            );
+            accounts.push(lb_pair);
+            accounts.extend(bin_arrays.iter().copied());
+            if let Some(bitmap) = bitmap_extension {
+                accounts.push(bitmap);
+            }
+            accounts.push(mint_x);
+            accounts.push(mint_y);
+
+            Ok((
+                PoolRecipe::MeteoraDlmm(MeteoraDlmmRecipe {
+                    lb_pair,
+                    bin_arrays,
+                    bitmap_extension,
+                    mint_x,
+                    mint_y,
+                }),
+                accounts,
+                PoolTopology {
+                    mint_a: mint_x,
+                    mint_b: mint_y,
+                },
             ))
         }
     }
