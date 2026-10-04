@@ -150,7 +150,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Err(io::Error::new(
                         io::ErrorKind::UnexpectedEof,
                         "Yellowstone feed ended during RPC bootstrap",
-                    ).into());
+                    )
+                    .into());
                 }
                 Err(error) => {
                     return Err(Box::new(error) as Box<dyn std::error::Error>);
