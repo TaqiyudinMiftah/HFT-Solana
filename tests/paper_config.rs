@@ -161,7 +161,6 @@ fn dlmm_config_rejects_empty_bin_array_window() {
     ));
 }
 
-
 #[test]
 fn dlmm_config_rejects_zero_bin_array_take_count() {
     let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();

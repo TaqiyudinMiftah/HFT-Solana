@@ -133,7 +133,6 @@ fn raw_snapshot_rejects_configured_mint_mismatch() {
     assert!(matches!(result, Err(SnapshotError::DlmmMintMismatch)));
 }
 
-
 #[test]
 fn incomplete_discovered_bin_window_is_rejected() {
     let pair = include_bytes!(concat!(

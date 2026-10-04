@@ -413,7 +413,6 @@ pub fn assemble_meteora_dlmm_quote_state(
     })
 }
 
-
 #[cfg(feature = "meteora-dlmm")]
 pub fn validate_meteora_dlmm_bin_window(
     state: &crate::quote::meteora_dlmm::MeteoraDlmmQuoteState,
