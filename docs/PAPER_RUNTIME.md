@@ -1,70 +1,89 @@
-# Paper runtime orchestration
+# Paper runtime runbook
 
-The paper runtime connects the already-isolated components without introducing
-a live transaction sender.
+## 1. Prepare config
 
-```text
-Yellowstone FeedEvent
-        |
-        v
-PaperStateReactor
-  journal / fork rollback
-        |
-        v
-ActivePoolStore
-  ArcSwap latest state
-        |
-        v
-DirtyPoolQueue
-  bounded + coalesced
-        |
-        v
-OpportunityEngine
-  frozen cycle snapshot
-  slot-skew check
-  generation revalidation
-        |
-        v
-Paper Opportunity
+Copy `config/paper.example.json` and replace placeholder addresses with real
+pool, vault, mint, fee/config, and cycle data.
+
+For Meteora DLMM, configure:
+
+- `lb_pair`
+- an initial `bin_arrays` window
+- optional `bitmap_extension`
+- `mint_x`
+- `mint_y`
+
+The initial bin list is a bootstrap hint, not a permanent ceiling. Yellowstone
+subscribes to all BinArrays owned by each configured LbPair and the reactor
+registers newly observed arrays automatically.
+
+## 2. Set market-data endpoints
+
+```bash
+export HFT_YELLOWSTONE_ENDPOINT="https://your-yellowstone-endpoint"
+export HFT_YELLOWSTONE_X_TOKEN="optional-token"
+export HFT_SOLANA_RPC_URL="https://your-solana-rpc"
 ```
 
-## Bounded queue correctness
+Using the RPC bootstrap is strongly recommended. Without it, readiness depends
+on every required account being observed in the live stream after process
+start.
 
-A bounded queue is useful only if overflow does not silently lose a newly
-published state. `PaperPipeline` therefore treats `QueueFull` as a
-synchronous fallback:
+## 3. Start
 
-1. publish the new pool state;
-2. attempt to mark the pool dirty;
-3. if the queue is full, evaluate that pool immediately;
-4. drain the normal coalesced queue afterward.
-
-The opportunity engine's per-cycle captured versions suppress duplicate work
-when an overflow evaluation and a queued neighboring pool refer to the same
-market state.
-
-## Live-feed bridge
-
-With the `yellowstone` feature enabled,
-`paper::async_loop::run_paper_event_loop` consumes a bounded Tokio
-`Receiver<FeedEvent>` and forwards paper opportunities through a second
-bounded channel.
-
-Opportunity forwarding uses `try_send`: a slow metrics/UI consumer is allowed
-to drop paper opportunities rather than backpressuring the market-data feed.
-The dropped count is explicit telemetry.
-
-A caller can wire it to the existing Yellowstone adapter:
-
-```text
-run_account_feed(config, feed_tx)
-              |
-              v
-         feed_rx
-              |
-              v
-run_paper_event_loop(feed_rx, opportunity_tx, pipeline)
+```bash
+cargo run --release --features yellowstone --bin paper_yellowstone -- config/paper.json
 ```
 
-No signer, private key, Jito sender, Helius sender, or mainnet transaction
-submission is present in this runtime.
+There is no private-key argument and no live transaction path.
+
+## 4. Observe bootstrap
+
+Expected bootstrap diagnostics include:
+
+- explicit account count
+- scoped DLMM BinArray count
+- RPC context slot
+- buffered events applied
+- stale/ambiguous buffered events rejected
+- initial paper opportunity count
+
+A line containing `PAPER_DLMM_BOOTSTRAP_INCOMPLETE` means the current DLMM
+bin window could not yet be made quote-complete. The engine fails closed for
+that pool.
+
+## 5. Observe live output
+
+Useful output families:
+
+- `PAPER_OPPORTUNITY`
+- `PAPER_LANDING`
+- `PAPER_LANDING_SKIP`
+- `PAPER_DLMM_REFRESH_REQUIRED`
+- final aggregate paper/latency/landing statistics
+
+Landing lines are EV simulations only. They do not submit transactions.
+
+## Coherence rules
+
+For PumpSwap, Raydium CPMM, and DAMM v2, the reactor validates configured hot
+account consistency.
+
+For DLMM, bank-scoped updates are held behind Yellowstone
+`SLOT_COMPLETED`. The state is invalid while a relevant bank is open and is
+published only after the fence. BinArrays not touched by that bank may remain
+at earlier slots.
+
+## Bootstrap ordering rule
+
+Yellowstone starts before RPC bootstrap to avoid a blind window. After the RPC
+snapshot returns, only a finite already-buffered prefix is replayed. Events
+that arrive later remain queued for the normal event loop.
+
+For accounts present in the RPC snapshot:
+
+- older slot -> reject
+- same slot -> reject as ordering-ambiguous
+- strictly newer slot -> replay
+
+For accounts absent from the snapshot, buffered live updates remain eligible.
