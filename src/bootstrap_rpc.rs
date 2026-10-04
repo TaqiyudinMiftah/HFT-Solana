@@ -193,11 +193,7 @@ where
     }
 
     for event in buffered_events {
-        if live_event_is_safe_after_bootstrap(
-            &event,
-            &startup_slots,
-            snapshot.max_context_slot,
-        ) {
+        if live_event_is_safe_after_bootstrap(&event, &startup_slots, snapshot.max_context_slot) {
             result.refresh_requests.extend(pipeline.seed_event(event));
             result.buffered_applied = result.buffered_applied.saturating_add(1);
         } else {
