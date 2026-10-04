@@ -7,22 +7,37 @@ fn main() {
 }
 
 #[cfg(feature = "yellowstone")]
+fn unix_now_ns() -> Result<u64, std::io::Error> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| std::io::Error::other("system clock is before Unix epoch"))?
+        .as_nanos()
+        .min(u64::MAX as u128) as u64)
+}
+
+#[cfg(feature = "yellowstone")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env, fs, io};
 
     use hft_solana::{
+        bootstrap_rpc::{
+            fetch_bootstrap_snapshot, live_event_is_not_older_than_bootstrap,
+            startup_account_slots, BootstrapRpcConfig,
+        },
         decode::meteora_dlmm::{
             BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID,
         },
         feed::yellowstone::{
-            run_account_feed, YellowstoneAccountFilter, YellowstoneConfig, YellowstoneMemcmpFilter,
-            YellowstoneScopedAccountFilter,
+            run_account_feed_with_ready, YellowstoneAccountFilter, YellowstoneConfig,
+            YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
         },
         paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
     };
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, oneshot};
 
     let config_path = env::args().nth(1).ok_or_else(|| {
         io::Error::new(
@@ -33,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let json = fs::read_to_string(&config_path)?;
     let config = PaperConfig::from_json_str(&json)?;
-    let built = config.build()?;
+    let mut built = config.build()?;
 
     let endpoint = env::var("HFT_YELLOWSTONE_ENDPOINT").map_err(|_| {
         io::Error::new(
@@ -75,15 +90,144 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     eprintln!(
-        "paper mode: subscribing to {} explicit accounts; live transaction submission is disabled",
-        yellowstone.filter.accounts.len()
+        "paper mode: subscribing to {} explicit accounts and {} DLMM bin scopes; live transaction submission is disabled",
+        yellowstone.filter.accounts.len(),
+        yellowstone.filter.scoped.len(),
     );
 
-    let (feed_tx, feed_rx) = mpsc::channel(built.feed_channel_capacity);
+    let (feed_tx, mut feed_rx) = mpsc::channel(built.feed_channel_capacity);
     let (opportunity_tx, mut opportunity_rx) = mpsc::channel(built.opportunity_channel_capacity);
     let (refresh_tx, mut refresh_rx) = mpsc::channel(256);
+    let (feed_ready_tx, feed_ready_rx) = oneshot::channel();
 
-    let mut feed_task = tokio::spawn(run_account_feed(yellowstone, feed_tx));
+    let mut feed_task = tokio::spawn(run_account_feed_with_ready(
+        yellowstone,
+        feed_tx,
+        feed_ready_tx,
+    ));
+
+    tokio::select! {
+        ready = feed_ready_rx => {
+            ready.map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "Yellowstone feed ended before subscription readiness",
+                )
+            })?;
+        }
+        feed_result = &mut feed_task => {
+            match feed_result? {
+                Ok(()) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Yellowstone feed ended before subscription readiness",
+                    ).into());
+                }
+                Err(error) => {
+                    return Err(Box::new(error) as Box<dyn std::error::Error>);
+                }
+            }
+        }
+    }
+
+    let mut bootstrap_opportunities_forwarded = 0u64;
+    let mut bootstrap_opportunities_dropped = 0u64;
+
+    if let Some(rpc_url) = env::var("HFT_SOLANA_RPC_URL")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        let snapshot = fetch_bootstrap_snapshot(&BootstrapRpcConfig {
+            rpc_url,
+            explicit_accounts: built.account_filters.clone(),
+            dlmm_bin_pairs: built.dlmm_bin_pairs.clone(),
+        })
+        .await?;
+
+        if feed_task.is_finished() {
+            match feed_task.await? {
+                Ok(()) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "Yellowstone feed ended during RPC bootstrap",
+                    ).into());
+                }
+                Err(error) => {
+                    return Err(Box::new(error) as Box<dyn std::error::Error>);
+                }
+            }
+        }
+
+        let startup_slots = startup_account_slots(&snapshot);
+        let bootstrap_explicit = snapshot.explicit_accounts;
+        let bootstrap_dlmm_bins = snapshot.scoped_dlmm_bin_arrays;
+        let bootstrap_slot = snapshot.max_context_slot;
+
+        for event in snapshot.events {
+            for request in built.pipeline.seed_event(event) {
+                eprintln!(
+                    "PAPER_DLMM_BOOTSTRAP_INCOMPLETE pool={} missing_accounts={}",
+                    request.pool_id,
+                    request.missing_accounts.len(),
+                );
+            }
+        }
+
+        // Drain only the events that were already buffered when the RPC
+        // snapshot completed. Events arriving during this finite drain remain
+        // queued for the normal paper loop.
+        let buffered = feed_rx.len();
+        let mut buffered_applied = 0usize;
+        let mut buffered_stale = 0usize;
+        for _ in 0..buffered {
+            let Ok(event) = feed_rx.try_recv() else {
+                break;
+            };
+
+            if !live_event_is_not_older_than_bootstrap(&event, &startup_slots) {
+                buffered_stale = buffered_stale.saturating_add(1);
+                continue;
+            }
+
+            for request in built.pipeline.seed_event(event) {
+                eprintln!(
+                    "PAPER_DLMM_BOOTSTRAP_INCOMPLETE pool={} missing_accounts={}",
+                    request.pool_id,
+                    request.missing_accounts.len(),
+                );
+            }
+            buffered_applied = buffered_applied.saturating_add(1);
+        }
+
+        let initial = built.pipeline.evaluate_ready_pools(unix_now_ns()?);
+        for opportunity in initial.opportunities {
+            match opportunity_tx.try_send(opportunity) {
+                Ok(()) => {
+                    bootstrap_opportunities_forwarded =
+                        bootstrap_opportunities_forwarded.saturating_add(1);
+                }
+                Err(_) => {
+                    bootstrap_opportunities_dropped =
+                        bootstrap_opportunities_dropped.saturating_add(1);
+                }
+            }
+        }
+
+        eprintln!(
+            "paper bootstrap: explicit_accounts={} dlmm_bin_arrays={} context_slot={} buffered_applied={} buffered_stale={} initial_opportunities={}",
+            bootstrap_explicit,
+            bootstrap_dlmm_bins,
+            bootstrap_slot,
+            buffered_applied,
+            buffered_stale,
+            bootstrap_opportunities_forwarded,
+        );
+    } else {
+        eprintln!(
+            "paper bootstrap disabled: set HFT_SOLANA_RPC_URL to seed current account state before live evaluation"
+        );
+    }
+
     let mut paper_task = tokio::spawn(run_paper_event_loop_with_refresh(
         feed_rx,
         opportunity_tx,
@@ -142,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stats = pipeline.stats();
     eprintln!(
-        "paper stopped: feed_events={} updates={} invalidations={} evaluated={} opportunities={} forwarded={} dropped={} refresh_forwarded={} refresh_dropped={}",
+        "paper stopped: feed_events={} updates={} invalidations={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={}",
         stats.feed_events,
         stats.reactor_updates,
         stats.reactor_invalidations,
@@ -150,6 +294,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.opportunities_emitted,
         output_stats.opportunities_forwarded,
         output_stats.opportunities_dropped,
+        bootstrap_opportunities_forwarded,
+        bootstrap_opportunities_dropped,
         output_stats.refresh_requests_forwarded,
         output_stats.refresh_requests_dropped,
     );

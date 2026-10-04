@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use futures::StreamExt;
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use yellowstone_grpc_client::{GeyserGrpcClient, ReconnectEvent};
 use yellowstone_grpc_proto::prelude::{
     subscribe_request_filter_accounts_filter::Filter as AccountFilterOneof,
@@ -124,6 +124,22 @@ pub async fn run_account_feed(
     config: YellowstoneConfig,
     output: mpsc::Sender<FeedEvent>,
 ) -> Result<(), YellowstoneFeedError> {
+    run_account_feed_inner(config, output, None).await
+}
+
+pub async fn run_account_feed_with_ready(
+    config: YellowstoneConfig,
+    output: mpsc::Sender<FeedEvent>,
+    ready: oneshot::Sender<()>,
+) -> Result<(), YellowstoneFeedError> {
+    run_account_feed_inner(config, output, Some(ready)).await
+}
+
+async fn run_account_feed_inner(
+    config: YellowstoneConfig,
+    output: mpsc::Sender<FeedEvent>,
+    ready: Option<oneshot::Sender<()>>,
+) -> Result<(), YellowstoneFeedError> {
     let request = build_subscribe_request(&config);
 
     let builder = GeyserGrpcClient::build_from_shared(config.endpoint)
@@ -140,6 +156,10 @@ pub async fn run_account_feed(
         .subscribe_with_reconnect(Some(request))
         .await
         .map_err(|error| YellowstoneFeedError::Subscribe(error.to_string()))?;
+
+    if let Some(ready) = ready {
+        let _ = ready.send(());
+    }
 
     while let Some(message) = stream.next().await {
         match message {
