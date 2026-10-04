@@ -246,7 +246,6 @@ fn queue_full_fallback_waits_until_entire_batch_is_published() {
     assert!(batch.opportunities[0].expected_effective_profit > 0);
 }
 
-
 #[cfg(feature = "meteora-dlmm")]
 #[test]
 fn dlmm_incomplete_window_becomes_refresh_request() {
