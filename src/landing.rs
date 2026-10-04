@@ -60,7 +60,9 @@ impl LandingPaperStats {
     pub fn record_choice(&mut self, choice: LandingChoice) {
         self.evaluated = self.evaluated.saturating_add(1);
         self.selected = self.selected.saturating_add(1);
-        self.expected_value_total = self.expected_value_total.saturating_add(choice.expected_value);
+        self.expected_value_total = self
+            .expected_value_total
+            .saturating_add(choice.expected_value);
 
         match choice.provider {
             LandingProvider::Direct => self.direct = self.direct.saturating_add(1),

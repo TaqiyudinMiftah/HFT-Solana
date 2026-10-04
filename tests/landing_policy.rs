@@ -139,7 +139,6 @@ fn invalid_probability_tip_cap_and_low_net_are_rejected() {
     assert!(evaluate_landing_candidate(&opportunity(20_000), low_net, config()).is_none());
 }
 
-
 #[test]
 fn paper_stats_track_provider_mix_skips_and_ev() {
     let direct = evaluate_landing_candidate(

@@ -260,8 +260,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         landing_stats.record_skip();
                         println!(
                             "PAPER_LANDING_SKIP cycle={} effective_profit={}",
-                            opportunity.cycle_id,
-                            opportunity.expected_effective_profit,
+                            opportunity.cycle_id, opportunity.expected_effective_profit,
                         );
                     }
                 }
