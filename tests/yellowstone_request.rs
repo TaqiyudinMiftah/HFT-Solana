@@ -1,8 +1,8 @@
 #![cfg(feature = "yellowstone")]
 
 use hft_solana::feed::yellowstone::{
-    build_subscribe_request, YellowstoneAccountFilter, YellowstoneConfig,
-    YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
+    build_subscribe_request, YellowstoneAccountFilter, YellowstoneConfig, YellowstoneMemcmpFilter,
+    YellowstoneScopedAccountFilter,
 };
 use yellowstone_grpc_proto::prelude::CommitmentLevel;
 
@@ -30,7 +30,6 @@ fn account_request_is_processed_and_exactly_filtered() {
     assert_eq!(slots.filter_by_commitment, Some(false));
     assert_eq!(slots.interslot_updates, Some(true));
 }
-
 
 #[test]
 fn scoped_account_filter_builds_owner_and_memcmp_predicates() {

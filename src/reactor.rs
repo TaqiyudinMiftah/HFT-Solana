@@ -185,6 +185,8 @@ pub struct PaperStateReactor {
     ready: Vec<bool>,
     max_hot_slot_skew: u64,
     pending_fenced_banks: HashMap<BankIdentity, HashSet<PoolId>>,
+    #[cfg(feature = "meteora-dlmm")]
+    dlmm_pair_to_pools: HashMap<AccountKey, Vec<PoolId>>,
 }
 
 impl PaperStateReactor {
@@ -197,6 +199,8 @@ impl PaperStateReactor {
             ready: Vec::new(),
             max_hot_slot_skew,
             pending_fenced_banks: HashMap::new(),
+            #[cfg(feature = "meteora-dlmm")]
+            dlmm_pair_to_pools: HashMap::new(),
         }
     }
 
@@ -206,6 +210,14 @@ impl PaperStateReactor {
             .len()
             .try_into()
             .expect("pool registry exceeds u32");
+
+        #[cfg(feature = "meteora-dlmm")]
+        if let PoolRecipe::MeteoraDlmm(dlmm) = &recipe {
+            self.dlmm_pair_to_pools
+                .entry(dlmm.lb_pair)
+                .or_default()
+                .push(pool_id);
+        }
 
         let mut unique = HashSet::new();
         for dependency in recipe.dependencies() {
@@ -236,6 +248,9 @@ impl PaperStateReactor {
     }
 
     fn process_account(&mut self, update: AccountUpdate) -> Vec<ReactorOutput> {
+        #[cfg(feature = "meteora-dlmm")]
+        self.maybe_register_dlmm_bin_array(&update);
+
         let pubkey = update.pubkey;
         let bank = update.bank_id.map(|bank_id| BankIdentity {
             generation: update.generation,
@@ -274,6 +289,43 @@ impl PaperStateReactor {
         }
 
         outputs
+    }
+
+    #[cfg(feature = "meteora-dlmm")]
+    fn maybe_register_dlmm_bin_array(&mut self, update: &AccountUpdate) {
+        if update.owner != crate::decode::meteora_dlmm::DLMM_PROGRAM_ID_BYTES {
+            return;
+        }
+
+        if self.account_to_pools.contains_key(&update.pubkey) {
+            return;
+        }
+
+        let Ok(bin_array) = crate::decode::meteora_dlmm::decode_bin_array(&update.data) else {
+            return;
+        };
+        let pair = bin_array.lb_pair.to_bytes();
+
+        let Some(pool_ids) = self.dlmm_pair_to_pools.get(&pair).cloned() else {
+            return;
+        };
+
+        for pool_id in pool_ids {
+            let Some(PoolRecipe::MeteoraDlmm(recipe)) =
+                self.recipes.get_mut(pool_id as usize)
+            else {
+                continue;
+            };
+
+            if !recipe.bin_arrays.contains(&update.pubkey) {
+                recipe.bin_arrays.push(update.pubkey);
+            }
+
+            let pools = self.account_to_pools.entry(update.pubkey).or_default();
+            if !pools.contains(&pool_id) {
+                pools.push(pool_id);
+            }
+        }
     }
 
     fn process_discard_banks(&mut self, banks: &[BankIdentity]) -> Vec<ReactorOutput> {

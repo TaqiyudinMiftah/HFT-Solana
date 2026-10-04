@@ -3,6 +3,7 @@
 use std::str::FromStr;
 
 use hft_solana::{
+    decode::meteora_dlmm::DLMM_PROGRAM_ID_BYTES,
     feed::{AccountUpdate, BankIdentity, FeedEvent},
     quote::meteora_dlmm::quote_exact_in_at_slot,
     reactor::{
@@ -312,4 +313,93 @@ fn startup_snapshot_at_same_numeric_slot_is_not_a_wrong_bank() {
         completed.as_slice(),
         [ReactorOutput::PoolUpdated { .. }]
     ));
+}
+
+
+fn setup_reactor_with_one_bin() -> PaperStateReactor {
+    let mut reactor = PaperStateReactor::new(8, 0);
+    reactor.register(PoolRecipe::MeteoraDlmm(MeteoraDlmmRecipe {
+        lb_pair: key(LB_PAIR),
+        bin_arrays: vec![key(BIN_ARRAY_1)],
+        bitmap_extension: None,
+        mint_x: key(TOKEN_X_MINT),
+        mint_y: key(TOKEN_Y_MINT),
+        bin_array_take_count: 2,
+    }));
+    reactor
+}
+
+#[test]
+fn wildcard_bin_array_update_auto_registers_and_recovers_pool() {
+    let mut reactor = setup_reactor_with_one_bin();
+    let token_program = key(TOKEN_PROGRAM);
+    let dummy_owner = [77u8; 32];
+
+    for event in [
+        update(key(LB_PAIR), dummy_owner, 100, 1, None, bytes("pair")),
+        update(key(BIN_ARRAY_1), DLMM_PROGRAM_ID_BYTES, 100, 2, None, bytes("bin1")),
+        update(
+            key(TOKEN_X_MINT),
+            token_program,
+            90,
+            3,
+            None,
+            bytes("mint_x"),
+        ),
+    ] {
+        assert!(reactor.process(event).is_empty());
+    }
+
+    let invalid = reactor.process(update(
+        key(TOKEN_Y_MINT),
+        token_program,
+        90,
+        4,
+        None,
+        bytes("mint_y"),
+    ));
+    assert!(matches!(
+        invalid.as_slice(),
+        [ReactorOutput::PoolInvalidated {
+            reason: ReactorInvalidation::DlmmIncompleteBinWindow { missing },
+            ..
+        }] if missing.contains(&key(BIN_ARRAY_2))
+    ));
+
+    let bank = BankIdentity {
+        generation: 1,
+        slot: 900,
+        bank_id: 91,
+    };
+
+    // BinArray #2 was not part of the configured recipe. The immutable
+    // owner+memcmp Yellowstone scope discovers it and the reactor attaches it
+    // to the matching LbPair before journaling the update.
+    assert!(reactor
+        .process(update(
+            key(BIN_ARRAY_2),
+            DLMM_PROGRAM_ID_BYTES,
+            bank.slot,
+            10,
+            Some(bank.bank_id),
+            bytes("bin2"),
+        ))
+        .is_empty());
+
+    let completed = reactor.process(FeedEvent::SlotComplete { bank });
+    assert!(matches!(
+        completed.as_slice(),
+        [ReactorOutput::PoolUpdated {
+            state: PoolState::MeteoraDlmm(_),
+            ..
+        }]
+    ));
+
+    let ReactorOutput::PoolUpdated { state, .. } = &completed[0] else {
+        unreachable!()
+    };
+    let PoolState::MeteoraDlmm(state) = state else {
+        unreachable!()
+    };
+    assert_eq!(state.quote.bin_arrays.len(), 2);
 }

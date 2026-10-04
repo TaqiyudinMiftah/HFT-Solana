@@ -16,8 +16,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID,
         },
         feed::yellowstone::{
-            run_account_feed, YellowstoneAccountFilter, YellowstoneConfig,
-            YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
+            run_account_feed, YellowstoneAccountFilter, YellowstoneConfig, YellowstoneMemcmpFilter,
+            YellowstoneScopedAccountFilter,
         },
         paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
