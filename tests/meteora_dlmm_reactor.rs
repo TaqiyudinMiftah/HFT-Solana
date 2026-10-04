@@ -249,7 +249,6 @@ fn older_slot_complete_does_not_publish_over_newer_pending_bank() {
     ));
 }
 
-
 #[test]
 fn startup_snapshot_at_same_numeric_slot_is_not_a_wrong_bank() {
     let mut reactor = setup_reactor();
