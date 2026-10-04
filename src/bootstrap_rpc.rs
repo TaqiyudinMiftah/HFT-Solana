@@ -193,7 +193,11 @@ where
     }
 
     for event in buffered_events {
-        if live_event_is_safe_after_bootstrap(&event, &startup_slots) {
+        if live_event_is_safe_after_bootstrap(
+            &event,
+            &startup_slots,
+            snapshot.max_context_slot,
+        ) {
             result.refresh_requests.extend(pipeline.seed_event(event));
             result.buffered_applied = result.buffered_applied.saturating_add(1);
         } else {
@@ -223,16 +227,21 @@ pub fn startup_account_slots(snapshot: &BootstrapSnapshot) -> BTreeMap<[u8; 32],
 /// JSON-RPC returns a context slot but not the account write_version. A
 /// buffered Yellowstone update from the same slot could therefore precede the
 /// snapshot and regress state. Fail closed by requiring a strictly newer slot.
-/// Accounts absent from the snapshot remain eligible because there is no RPC
-/// baseline to overwrite.
+/// Accounts absent from the per-account snapshot map (for example a scoped
+/// DLMM BinArray) still have a global RPC context baseline. They are accepted
+/// only when strictly newer than the snapshot context slot; otherwise replay
+/// could resurrect an account version that the RPC snapshot had already
+/// superseded or omitted.
 pub fn live_event_is_safe_after_bootstrap(
     event: &FeedEvent,
     startup_slots: &BTreeMap<[u8; 32], u64>,
+    snapshot_context_slot: u64,
 ) -> bool {
     match event {
-        FeedEvent::Account(update) => startup_slots
-            .get(&update.pubkey)
-            .map_or(true, |startup_slot| update.slot > *startup_slot),
+        FeedEvent::Account(update) => match startup_slots.get(&update.pubkey) {
+            Some(startup_slot) => update.slot > *startup_slot,
+            None => update.slot > snapshot_context_slot,
+        },
         FeedEvent::DiscardBanks { .. } | FeedEvent::SlotComplete { .. } => true,
     }
 }
@@ -284,9 +293,9 @@ mod tests {
             })
         };
 
-        assert!(!live_event_is_safe_after_bootstrap(&live(99), &slots));
-        assert!(!live_event_is_safe_after_bootstrap(&live(100), &slots));
-        assert!(live_event_is_safe_after_bootstrap(&live(101), &slots));
+        assert!(!live_event_is_safe_after_bootstrap(&live(99), &slots, 100));
+        assert!(!live_event_is_safe_after_bootstrap(&live(100), &slots, 100));
+        assert!(live_event_is_safe_after_bootstrap(&live(101), &slots, 100));
         assert!(live_event_is_safe_after_bootstrap(
             &FeedEvent::SlotComplete {
                 bank: crate::feed::BankIdentity {
@@ -296,6 +305,7 @@ mod tests {
                 },
             },
             &slots,
+            100,
         ));
     }
 
@@ -310,6 +320,29 @@ mod tests {
             ActivePoolStore::new(0, 1),
             OpportunityEngine::new(GraphIndex::from_cycles(0, Vec::new()), Vec::new()),
         )
+    }
+
+    #[test]
+    fn buffer_filter_rejects_unknown_accounts_not_newer_than_snapshot_context() {
+        let slots = BTreeMap::new();
+        let owner = [2u8; 32];
+
+        let live = |slot| {
+            FeedEvent::Account(AccountUpdate {
+                pubkey: [9u8; 32],
+                owner,
+                slot,
+                write_version: 1,
+                generation: 1,
+                bank_id: Some(9),
+                is_startup: false,
+                data: vec![3],
+            })
+        };
+
+        assert!(!live_event_is_safe_after_bootstrap(&live(99), &slots, 100));
+        assert!(!live_event_is_safe_after_bootstrap(&live(100), &slots, 100));
+        assert!(live_event_is_safe_after_bootstrap(&live(101), &slots, 100));
     }
 
     #[test]
