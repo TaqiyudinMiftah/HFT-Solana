@@ -4,7 +4,9 @@ use meteora_dlmm_commons::{
     dlmm::accounts::{BinArray, BinArrayBitmapExtension, LbPair},
     quote::{get_bin_array_pubkeys_for_swap, quote_exact_in},
 };
-use solana_sdk_v2::{account::Account, clock::Clock, pubkey::Pubkey};
+use solana_sdk_v2::{
+    account::Account, clock::Clock, epoch_schedule::EpochSchedule, pubkey::Pubkey,
+};
 
 use crate::{
     quote::{CashbackLocation, Quote, QuoteError},
@@ -93,4 +95,25 @@ pub fn quote_exact_in_official(
         cashback_location: CashbackLocation::None,
         version,
     })
+}
+
+
+pub fn quote_exact_in_at_slot(
+    state: &MeteoraDlmmQuoteState,
+    amount_in: u64,
+    direction: Direction,
+    current_timestamp: u64,
+    current_slot: u64,
+    version: StateVersion,
+) -> Result<Quote, QuoteError> {
+    let current_epoch = EpochSchedule::default().get_epoch(current_slot);
+    quote_exact_in_official(
+        state,
+        amount_in,
+        direction,
+        current_timestamp,
+        current_slot,
+        current_epoch,
+        version,
+    )
 }

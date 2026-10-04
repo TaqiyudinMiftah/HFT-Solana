@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use smallvec::SmallVec;
 
 use crate::{
-    feed::{AccountJournal, FeedEvent, JournalApplyResult},
+    feed::{AccountJournal, AccountUpdate, BankIdentity, FeedEvent, JournalApplyResult},
     snapshot::{assemble_pump_state_auto, assemble_raydium_state_with_mints, SnapshotError},
     state::PoolState,
     types::{PoolId, StateVersion},
@@ -33,6 +33,16 @@ pub struct MeteoraDammRecipe {
     pub mint_b: AccountKey,
 }
 
+#[cfg(feature = "meteora-dlmm")]
+#[derive(Clone, Debug)]
+pub struct MeteoraDlmmRecipe {
+    pub lb_pair: AccountKey,
+    pub bin_arrays: Vec<AccountKey>,
+    pub bitmap_extension: Option<AccountKey>,
+    pub mint_x: AccountKey,
+    pub mint_y: AccountKey,
+}
+
 #[derive(Clone, Debug)]
 pub struct RaydiumPoolRecipe {
     pub pool: AccountKey,
@@ -49,10 +59,12 @@ pub enum PoolRecipe {
     RaydiumCpmm(RaydiumPoolRecipe),
     #[cfg(feature = "meteora-damm")]
     MeteoraDamm(MeteoraDammRecipe),
+    #[cfg(feature = "meteora-dlmm")]
+    MeteoraDlmm(MeteoraDlmmRecipe),
 }
 
 impl PoolRecipe {
-    fn dependencies(&self) -> SmallVec<[AccountKey; 8]> {
+    fn dependencies(&self) -> SmallVec<[AccountKey; 16]> {
         match self {
             PoolRecipe::Pump(recipe) => SmallVec::from_slice(&[
                 recipe.pool,
@@ -80,6 +92,18 @@ impl PoolRecipe {
                 recipe.mint_a,
                 recipe.mint_b,
             ]),
+            #[cfg(feature = "meteora-dlmm")]
+            PoolRecipe::MeteoraDlmm(recipe) => {
+                let mut dependencies = SmallVec::new();
+                dependencies.push(recipe.lb_pair);
+                dependencies.extend(recipe.bin_arrays.iter().copied());
+                if let Some(bitmap) = recipe.bitmap_extension {
+                    dependencies.push(bitmap);
+                }
+                dependencies.push(recipe.mint_x);
+                dependencies.push(recipe.mint_y);
+                dependencies
+            }
         }
     }
 
@@ -100,7 +124,18 @@ impl PoolRecipe {
             PoolRecipe::MeteoraDamm(recipe) => {
                 SmallVec::from_slice(&[recipe.pool, recipe.vault_a, recipe.vault_b])
             }
+            #[cfg(feature = "meteora-dlmm")]
+            PoolRecipe::MeteoraDlmm(_) => SmallVec::new(),
         }
+    }
+
+    fn is_slot_fenced(&self) -> bool {
+        #[cfg(feature = "meteora-dlmm")]
+        if matches!(self, PoolRecipe::MeteoraDlmm(_)) {
+            return true;
+        }
+
+        false
     }
 }
 
@@ -113,6 +148,16 @@ pub enum ReactorInvalidation {
         max_allowed: u64,
     },
     Snapshot(String),
+    SlotFencePending {
+        bank: BankIdentity,
+    },
+    SlotFenceSuperseded {
+        fence: BankIdentity,
+        dependency: AccountKey,
+        current_generation: u64,
+        current_slot: u64,
+        current_bank_id: Option<u64>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +179,7 @@ pub struct PaperStateReactor {
     local_generations: Vec<u64>,
     ready: Vec<bool>,
     max_hot_slot_skew: u64,
+    pending_fenced_banks: HashMap<BankIdentity, HashSet<PoolId>>,
 }
 
 impl PaperStateReactor {
@@ -145,6 +191,7 @@ impl PaperStateReactor {
             local_generations: Vec::new(),
             ready: Vec::new(),
             max_hot_slot_skew,
+            pending_fenced_banks: HashMap::new(),
         }
     }
 
@@ -176,57 +223,163 @@ impl PaperStateReactor {
     }
 
     pub fn process(&mut self, event: FeedEvent) -> Vec<ReactorOutput> {
-        let affected_accounts = match event {
-            FeedEvent::Account(update) => {
-                let pubkey = update.pubkey;
-                if self.journal.apply(update) == JournalApplyResult::Duplicate {
-                    return Vec::new();
-                }
-                vec![pubkey]
-            }
-            FeedEvent::DiscardBanks { banks, .. } => {
-                let discarded = self.journal.discard_banks(&banks);
-                discarded.changed_accounts
-            }
-        };
+        match event {
+            FeedEvent::Account(update) => self.process_account(update),
+            FeedEvent::DiscardBanks { banks, .. } => self.process_discard_banks(&banks),
+            FeedEvent::SlotComplete { bank } => self.process_slot_complete(bank),
+        }
+    }
 
-        let mut affected_pools = HashSet::new();
-        for account in affected_accounts {
-            if let Some(pools) = self.account_to_pools.get(&account) {
-                affected_pools.extend(pools.iter().copied());
-            }
+    fn process_account(&mut self, update: AccountUpdate) -> Vec<ReactorOutput> {
+        let pubkey = update.pubkey;
+        let bank = update.bank_id.map(|bank_id| BankIdentity {
+            generation: update.generation,
+            slot: update.slot,
+            bank_id,
+        });
+
+        if self.journal.apply(update) == JournalApplyResult::Duplicate {
+            return Vec::new();
         }
 
-        let mut pool_ids: Vec<_> = affected_pools.into_iter().collect();
-        pool_ids.sort_unstable();
+        let pool_ids = self.affected_pools([pubkey]);
+        let mut outputs = Vec::new();
 
-        let mut outputs = Vec::with_capacity(pool_ids.len());
         for pool_id in pool_ids {
-            match self.rebuild(pool_id) {
-                Ok(state) => {
-                    self.ready[pool_id as usize] = true;
-                    outputs.push(ReactorOutput::PoolUpdated { pool_id, state });
-                }
-                Err(ReactorInvalidation::MissingDependency(_)) if !self.ready[pool_id as usize] => {
-                }
-                Err(reason) => {
-                    self.ready[pool_id as usize] = false;
-                    outputs.push(ReactorOutput::PoolInvalidated { pool_id, reason });
+            let recipe = &self.recipes[pool_id as usize];
+            if recipe.is_slot_fenced() {
+                if let Some(bank) = bank.clone() {
+                    self.pending_fenced_banks
+                        .entry(bank.clone())
+                        .or_default()
+                        .insert(pool_id);
+
+                    if self.ready[pool_id as usize] {
+                        self.ready[pool_id as usize] = false;
+                        outputs.push(ReactorOutput::PoolInvalidated {
+                            pool_id,
+                            reason: ReactorInvalidation::SlotFencePending { bank },
+                        });
+                    }
+                    continue;
                 }
             }
+
+            self.rebuild_into(pool_id, None, &mut outputs);
         }
 
         outputs
     }
 
-    fn rebuild(&mut self, pool_id: PoolId) -> Result<PoolState, ReactorInvalidation> {
+    fn process_discard_banks(&mut self, banks: &[BankIdentity]) -> Vec<ReactorOutput> {
+        let discarded = self.journal.discard_banks(banks);
+        let mut affected = self.affected_pools(discarded.changed_accounts);
+
+        for bank in banks {
+            if let Some(pools) = self.pending_fenced_banks.remove(bank) {
+                affected.extend(pools);
+            }
+        }
+        affected.sort_unstable();
+        affected.dedup();
+
+        let mut outputs = Vec::new();
+        for pool_id in affected {
+            if self.has_pending_fence(pool_id) {
+                if self.ready[pool_id as usize] {
+                    self.ready[pool_id as usize] = false;
+                    outputs.push(ReactorOutput::PoolInvalidated {
+                        pool_id,
+                        reason: ReactorInvalidation::Snapshot(
+                            "DLMM has a newer unfinished slot fence".to_owned(),
+                        ),
+                    });
+                }
+                continue;
+            }
+
+            self.rebuild_into(pool_id, None, &mut outputs);
+        }
+
+        outputs
+    }
+
+    fn process_slot_complete(&mut self, bank: BankIdentity) -> Vec<ReactorOutput> {
+        let Some(pools) = self.pending_fenced_banks.remove(&bank) else {
+            return Vec::new();
+        };
+
+        let mut pool_ids: Vec<_> = pools.into_iter().collect();
+        pool_ids.sort_unstable();
+
+        let mut outputs = Vec::new();
+        for pool_id in pool_ids {
+            // A newer bank may already be streaming. In that case the journal
+            // can contain state beyond this fence, so wait for the newest
+            // outstanding bank instead of publishing a mixed snapshot.
+            if self.has_pending_fence(pool_id) {
+                continue;
+            }
+
+            self.rebuild_into(pool_id, Some(&bank), &mut outputs);
+        }
+
+        outputs
+    }
+
+    fn affected_pools<I>(&self, accounts: I) -> Vec<PoolId>
+    where
+        I: IntoIterator<Item = AccountKey>,
+    {
+        let mut affected = HashSet::new();
+        for account in accounts {
+            if let Some(pools) = self.account_to_pools.get(&account) {
+                affected.extend(pools.iter().copied());
+            }
+        }
+
+        let mut pool_ids: Vec<_> = affected.into_iter().collect();
+        pool_ids.sort_unstable();
+        pool_ids
+    }
+
+    fn has_pending_fence(&self, pool_id: PoolId) -> bool {
+        self.pending_fenced_banks
+            .values()
+            .any(|pools| pools.contains(&pool_id))
+    }
+
+    fn rebuild_into(
+        &mut self,
+        pool_id: PoolId,
+        fence: Option<&BankIdentity>,
+        outputs: &mut Vec<ReactorOutput>,
+    ) {
+        match self.rebuild(pool_id, fence) {
+            Ok(state) => {
+                self.ready[pool_id as usize] = true;
+                outputs.push(ReactorOutput::PoolUpdated { pool_id, state });
+            }
+            Err(ReactorInvalidation::MissingDependency(_)) if !self.ready[pool_id as usize] => {}
+            Err(reason) => {
+                self.ready[pool_id as usize] = false;
+                outputs.push(ReactorOutput::PoolInvalidated { pool_id, reason });
+            }
+        }
+    }
+
+    fn rebuild(
+        &mut self,
+        pool_id: PoolId,
+        fence: Option<&BankIdentity>,
+    ) -> Result<PoolState, ReactorInvalidation> {
         let recipe = self
             .recipes
             .get(pool_id as usize)
             .expect("registered pool id")
             .clone();
 
-        let version = self.next_version(pool_id, &recipe)?;
+        let version = self.next_version(pool_id, &recipe, fence)?;
 
         let state = match recipe {
             PoolRecipe::Pump(recipe) => {
@@ -289,6 +442,42 @@ impl PaperStateReactor {
                 )
                 .map(PoolState::MeteoraDamm)
             }
+            #[cfg(feature = "meteora-dlmm")]
+            PoolRecipe::MeteoraDlmm(recipe) => {
+                let pair = self.require(&recipe.lb_pair)?;
+                let mint_x = self.require(&recipe.mint_x)?;
+                let mint_y = self.require(&recipe.mint_y)?;
+
+                let mut bins = Vec::with_capacity(recipe.bin_arrays.len());
+                for bin_key in &recipe.bin_arrays {
+                    let account = self.require(bin_key)?;
+                    bins.push((*bin_key, account.data.as_slice()));
+                }
+
+                let bitmap_data = match recipe.bitmap_extension {
+                    Some(bitmap_key) => Some(self.require(&bitmap_key)?.data.as_slice()),
+                    None => None,
+                };
+
+                crate::snapshot::assemble_meteora_dlmm_quote_state(
+                    recipe.lb_pair,
+                    &pair.data,
+                    &bins,
+                    bitmap_data,
+                    recipe.mint_x,
+                    mint_x.owner,
+                    &mint_x.data,
+                    recipe.mint_y,
+                    mint_y.owner,
+                    &mint_y.data,
+                )
+                .map(|quote| {
+                    PoolState::MeteoraDlmm(crate::state::MeteoraDlmmState {
+                        version,
+                        quote: std::sync::Arc::new(quote),
+                    })
+                })
+            }
         };
 
         let state = state.map_err(snapshot_invalidation)?;
@@ -309,7 +498,12 @@ impl PaperStateReactor {
         &self,
         pool_id: PoolId,
         recipe: &PoolRecipe,
+        fence: Option<&BankIdentity>,
     ) -> Result<StateVersion, ReactorInvalidation> {
+        if recipe.is_slot_fenced() {
+            return self.next_fenced_version(pool_id, recipe, fence);
+        }
+
         let hot = recipe.hot_dependencies();
         let mut hot_min_slot = u64::MAX;
         let mut hot_max_slot = 0u64;
@@ -346,6 +540,47 @@ impl PaperStateReactor {
             generation: self.local_generations[pool_id as usize].saturating_add(1),
         })
     }
+    fn next_fenced_version(
+        &self,
+        pool_id: PoolId,
+        recipe: &PoolRecipe,
+        fence: Option<&BankIdentity>,
+    ) -> Result<StateVersion, ReactorInvalidation> {
+        let mut causal_slot = 0u64;
+        let mut causal_write_version = 0u64;
+
+        for key in recipe.dependencies() {
+            let account = self.require(&key)?;
+
+            if let Some(fence) = fence {
+                let is_future = account.generation > fence.generation
+                    || (account.generation == fence.generation && account.slot > fence.slot);
+                let same_slot_wrong_bank = account.generation == fence.generation
+                    && account.slot == fence.slot
+                    && account.bank_id != Some(fence.bank_id);
+
+                if is_future || same_slot_wrong_bank {
+                    return Err(ReactorInvalidation::SlotFenceSuperseded {
+                        fence: fence.clone(),
+                        dependency: key,
+                        current_generation: account.generation,
+                        current_slot: account.slot,
+                        current_bank_id: account.bank_id,
+                    });
+                }
+            }
+
+            causal_slot = causal_slot.max(account.slot);
+            causal_write_version = causal_write_version.max(account.write_version);
+        }
+
+        Ok(StateVersion {
+            slot: fence.map_or(causal_slot, |bank| bank.slot),
+            write_version: causal_write_version,
+            generation: self.local_generations[pool_id as usize].saturating_add(1),
+        })
+    }
+
 }
 
 fn snapshot_invalidation(error: SnapshotError) -> ReactorInvalidation {

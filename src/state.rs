@@ -42,6 +42,26 @@ pub struct MeteoraDammState {
     pub pool: Arc<meteora_cp_amm::state::Pool>,
 }
 
+#[cfg(feature = "meteora-dlmm")]
+#[derive(Clone)]
+pub struct MeteoraDlmmState {
+    pub version: StateVersion,
+    pub quote: Arc<crate::quote::meteora_dlmm::MeteoraDlmmQuoteState>,
+}
+
+#[cfg(feature = "meteora-dlmm")]
+impl std::fmt::Debug for MeteoraDlmmState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MeteoraDlmmState")
+            .field("version", &self.version)
+            .field("lb_pair", &self.quote.lb_pair_pubkey.to_string())
+            .field("bin_arrays", &self.quote.bin_arrays.len())
+            .field("has_bitmap_extension", &self.quote.bitmap_extension.is_some())
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PumpState {
     pub version: StateVersion,
@@ -62,6 +82,8 @@ pub enum PoolState {
     RaydiumCpmm(RaydiumCpmmState),
     #[cfg(feature = "meteora-damm")]
     MeteoraDamm(MeteoraDammState),
+    #[cfg(feature = "meteora-dlmm")]
+    MeteoraDlmm(MeteoraDlmmState),
 }
 
 impl PoolState {
@@ -72,6 +94,8 @@ impl PoolState {
             PoolState::RaydiumCpmm(state) => state.version,
             #[cfg(feature = "meteora-damm")]
             PoolState::MeteoraDamm(state) => state.version,
+            #[cfg(feature = "meteora-dlmm")]
+            PoolState::MeteoraDlmm(state) => state.version,
         }
     }
 }

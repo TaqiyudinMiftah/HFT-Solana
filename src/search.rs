@@ -164,6 +164,19 @@ fn quote_edge(
                 s.version,
             )
         }
+
+        #[cfg(feature = "meteora-dlmm")]
+        PoolState::MeteoraDlmm(s) => {
+            let context = context.ok_or(QuoteError::MeteoraDlmmQuote)?;
+            crate::quote::meteora_dlmm::quote_exact_in_at_slot(
+                s.quote.as_ref(),
+                amount_in,
+                direction,
+                context.current_timestamp,
+                context.current_slot,
+                s.version,
+            )
+        }
     }
 }
 
