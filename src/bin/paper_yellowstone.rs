@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_account_feed_with_ready, YellowstoneAccountFilter, YellowstoneConfig,
             YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
         },
-        landing::choose_landing_path,
+        landing::{choose_landing_path, LandingPaperStats},
         paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
     };
@@ -222,6 +222,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let printer_task = tokio::spawn(async move {
+        let mut landing_stats = LandingPaperStats::default();
+
         while let Some(opportunity) = opportunity_rx.recv().await {
             let printed_ns = unix_now_ns().unwrap_or(opportunity.created_ns);
             println!(
@@ -241,24 +243,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     policy.candidates.iter().copied(),
                     policy.config,
                 ) {
-                    Some(choice) => println!(
-                        "PAPER_LANDING cycle={} provider={:?} success_probability_bps={} priority_fee={} relay_tip={} net_if_landed={} expected_value={}",
-                        opportunity.cycle_id,
-                        choice.provider,
-                        choice.success_probability_bps,
-                        choice.priority_fee,
-                        choice.relay_tip,
-                        choice.net_if_landed,
-                        choice.expected_value,
-                    ),
-                    None => println!(
-                        "PAPER_LANDING_SKIP cycle={} effective_profit={}",
-                        opportunity.cycle_id,
-                        opportunity.expected_effective_profit,
-                    ),
+                    Some(choice) => {
+                        landing_stats.record_choice(choice);
+                        println!(
+                            "PAPER_LANDING cycle={} provider={:?} success_probability_bps={} priority_fee={} relay_tip={} net_if_landed={} expected_value={}",
+                            opportunity.cycle_id,
+                            choice.provider,
+                            choice.success_probability_bps,
+                            choice.priority_fee,
+                            choice.relay_tip,
+                            choice.net_if_landed,
+                            choice.expected_value,
+                        );
+                    }
+                    None => {
+                        landing_stats.record_skip();
+                        println!(
+                            "PAPER_LANDING_SKIP cycle={} effective_profit={}",
+                            opportunity.cycle_id,
+                            opportunity.expected_effective_profit,
+                        );
+                    }
                 }
             }
         }
+
+        landing_stats
     });
 
     let refresh_printer_task = tokio::spawn(async move {
@@ -293,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    printer_task.await?;
+    let landing_stats = printer_task.await?;
     refresh_printer_task.await?;
 
     let stats = pipeline.stats();
@@ -303,7 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_stats.event_process_ns_total / output_stats.events_processed
     };
     eprintln!(
-        "paper stopped: feed_events={} updates={} invalidations={} dirty_queued={} dirty_collapsed={} queue_full={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={} loop_events={} event_process_ns_total={} event_process_ns_avg={} event_process_ns_max={}",
+        "paper stopped: feed_events={} updates={} invalidations={} dirty_queued={} dirty_collapsed={} queue_full={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={} loop_events={} event_process_ns_total={} event_process_ns_avg={} event_process_ns_max={} landing_evaluated={} landing_selected={} landing_skipped={} landing_direct={} landing_jito={} landing_helius={} landing_ev_total={}",
         stats.feed_events,
         stats.reactor_updates,
         stats.reactor_invalidations,
@@ -322,6 +332,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_stats.event_process_ns_total,
         event_process_ns_avg,
         output_stats.event_process_ns_max,
+        landing_stats.evaluated,
+        landing_stats.selected,
+        landing_stats.skipped,
+        landing_stats.direct,
+        landing_stats.jito,
+        landing_stats.helius_sender,
+        landing_stats.expected_value_total,
     );
 
     Ok(())

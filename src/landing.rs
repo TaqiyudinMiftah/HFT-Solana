@@ -45,6 +45,38 @@ pub struct LandingChoice {
     pub expected_value: i128,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LandingPaperStats {
+    pub evaluated: u64,
+    pub selected: u64,
+    pub skipped: u64,
+    pub direct: u64,
+    pub jito: u64,
+    pub helius_sender: u64,
+    pub expected_value_total: i128,
+}
+
+impl LandingPaperStats {
+    pub fn record_choice(&mut self, choice: LandingChoice) {
+        self.evaluated = self.evaluated.saturating_add(1);
+        self.selected = self.selected.saturating_add(1);
+        self.expected_value_total = self.expected_value_total.saturating_add(choice.expected_value);
+
+        match choice.provider {
+            LandingProvider::Direct => self.direct = self.direct.saturating_add(1),
+            LandingProvider::Jito => self.jito = self.jito.saturating_add(1),
+            LandingProvider::HeliusSender => {
+                self.helius_sender = self.helius_sender.saturating_add(1)
+            }
+        }
+    }
+
+    pub fn record_skip(&mut self) {
+        self.evaluated = self.evaluated.saturating_add(1);
+        self.skipped = self.skipped.saturating_add(1);
+    }
+}
+
 fn tip_share_allowed(effective_profit: i128, relay_tip: u64, max_tip_share_bps: u16) -> bool {
     if effective_profit <= 0 || max_tip_share_bps as u64 > BPS_DENOMINATOR {
         return false;

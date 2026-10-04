@@ -1,7 +1,7 @@
 use hft_solana::{
     landing::{
-        choose_landing_path, evaluate_landing_candidate, LandingCandidate, LandingPolicyConfig,
-        LandingProvider,
+        choose_landing_path, evaluate_landing_candidate, LandingCandidate, LandingPaperStats,
+        LandingPolicyConfig, LandingProvider,
     },
     opportunity::Opportunity,
 };
@@ -137,4 +137,50 @@ fn invalid_probability_tip_cap_and_low_net_are_rejected() {
         failure_fee: 5_000,
     };
     assert!(evaluate_landing_candidate(&opportunity(20_000), low_net, config()).is_none());
+}
+
+
+#[test]
+fn paper_stats_track_provider_mix_skips_and_ev() {
+    let direct = evaluate_landing_candidate(
+        &opportunity(100_000),
+        LandingCandidate {
+            provider: LandingProvider::Direct,
+            success_probability_bps: 8_000,
+            priority_fee: 5_000,
+            relay_tip: 0,
+            failure_fee: 10_000,
+        },
+        config(),
+    )
+    .unwrap();
+
+    let jito = evaluate_landing_candidate(
+        &opportunity(100_000),
+        LandingCandidate {
+            provider: LandingProvider::Jito,
+            success_probability_bps: 9_000,
+            priority_fee: 5_000,
+            relay_tip: 20_000,
+            failure_fee: 10_000,
+        },
+        config(),
+    )
+    .unwrap();
+
+    let mut stats = LandingPaperStats::default();
+    stats.record_choice(direct);
+    stats.record_choice(jito);
+    stats.record_skip();
+
+    assert_eq!(stats.evaluated, 3);
+    assert_eq!(stats.selected, 2);
+    assert_eq!(stats.skipped, 1);
+    assert_eq!(stats.direct, 1);
+    assert_eq!(stats.jito, 1);
+    assert_eq!(stats.helius_sender, 0);
+    assert_eq!(
+        stats.expected_value_total,
+        direct.expected_value + jito.expected_value
+    );
 }
