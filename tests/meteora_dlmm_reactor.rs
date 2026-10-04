@@ -315,7 +315,6 @@ fn startup_snapshot_at_same_numeric_slot_is_not_a_wrong_bank() {
     ));
 }
 
-
 fn setup_reactor_with_one_bin() -> PaperStateReactor {
     let mut reactor = PaperStateReactor::new(8, 0);
     reactor.register(PoolRecipe::MeteoraDlmm(MeteoraDlmmRecipe {
@@ -337,7 +336,14 @@ fn wildcard_bin_array_update_auto_registers_and_recovers_pool() {
 
     for event in [
         update(key(LB_PAIR), dummy_owner, 100, 1, None, bytes("pair")),
-        update(key(BIN_ARRAY_1), DLMM_PROGRAM_ID_BYTES, 100, 2, None, bytes("bin1")),
+        update(
+            key(BIN_ARRAY_1),
+            DLMM_PROGRAM_ID_BYTES,
+            100,
+            2,
+            None,
+            bytes("bin1"),
+        ),
         update(
             key(TOKEN_X_MINT),
             token_program,

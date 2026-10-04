@@ -311,8 +311,7 @@ impl PaperStateReactor {
         };
 
         for pool_id in pool_ids {
-            let Some(PoolRecipe::MeteoraDlmm(recipe)) =
-                self.recipes.get_mut(pool_id as usize)
+            let Some(PoolRecipe::MeteoraDlmm(recipe)) = self.recipes.get_mut(pool_id as usize)
             else {
                 continue;
             };
