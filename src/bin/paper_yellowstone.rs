@@ -220,14 +220,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let printer_task = tokio::spawn(async move {
         while let Some(opportunity) = opportunity_rx.recv().await {
+            let printed_ns = unix_now_ns().unwrap_or(opportunity.created_ns);
             println!(
-                "PAPER_OPPORTUNITY cycle={} amount_in={} expected_out={} effective_profit={} expected_cu={} created_ns={}",
+                "PAPER_OPPORTUNITY cycle={} amount_in={} expected_out={} effective_profit={} expected_cu={} created_ns={} output_queue_age_ns={}",
                 opportunity.cycle_id,
                 opportunity.amount_in,
                 opportunity.expected_out,
                 opportunity.expected_effective_profit,
                 opportunity.expected_cu,
                 opportunity.created_ns,
+                printed_ns.saturating_sub(opportunity.created_ns),
             );
         }
     });
@@ -268,11 +270,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     refresh_printer_task.await?;
 
     let stats = pipeline.stats();
+    let event_process_ns_avg = if output_stats.events_processed == 0 {
+        0
+    } else {
+        output_stats.event_process_ns_total / output_stats.events_processed
+    };
     eprintln!(
-        "paper stopped: feed_events={} updates={} invalidations={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={}",
+        "paper stopped: feed_events={} updates={} invalidations={} dirty_queued={} dirty_collapsed={} queue_full={} evaluated={} opportunities={} forwarded={} dropped={} bootstrap_forwarded={} bootstrap_dropped={} refresh_forwarded={} refresh_dropped={} loop_events={} event_process_ns_total={} event_process_ns_avg={} event_process_ns_max={}",
         stats.feed_events,
         stats.reactor_updates,
         stats.reactor_invalidations,
+        stats.dirty_queued,
+        stats.dirty_collapsed,
+        stats.queue_full_fallbacks,
         stats.pools_evaluated,
         stats.opportunities_emitted,
         output_stats.opportunities_forwarded,
@@ -281,6 +291,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bootstrap_opportunities_dropped,
         output_stats.refresh_requests_forwarded,
         output_stats.refresh_requests_dropped,
+        output_stats.events_processed,
+        output_stats.event_process_ns_total,
+        event_process_ns_avg,
+        output_stats.event_process_ns_max,
     );
 
     Ok(())

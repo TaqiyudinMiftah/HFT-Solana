@@ -237,7 +237,7 @@ fn output_pool_id(output: &ReactorOutput) -> PoolId {
 
 #[cfg(feature = "yellowstone")]
 pub mod async_loop {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
     use thiserror::Error;
     use tokio::sync::mpsc;
@@ -248,6 +248,9 @@ pub mod async_loop {
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct PaperOutputStats {
+        pub events_processed: u64,
+        pub event_process_ns_total: u64,
+        pub event_process_ns_max: u64,
         pub opportunities_forwarded: u64,
         pub opportunities_dropped: u64,
         pub refresh_requests_forwarded: u64,
@@ -291,6 +294,7 @@ pub mod async_loop {
         let mut stats = PaperOutputStats::default();
 
         while let Some(event) = input.recv().await {
+            let started = Instant::now();
             let created_ns = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_err(|_| PaperLoopError::Clock)?
@@ -298,6 +302,11 @@ pub mod async_loop {
                 .min(u64::MAX as u128) as u64;
 
             let batch = pipeline.process_event(event, created_ns);
+            let elapsed_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+            stats.events_processed = stats.events_processed.saturating_add(1);
+            stats.event_process_ns_total =
+                stats.event_process_ns_total.saturating_add(elapsed_ns);
+            stats.event_process_ns_max = stats.event_process_ns_max.max(elapsed_ns);
 
             for request in batch.dlmm_refresh_requests {
                 match refresh_output.as_ref() {
