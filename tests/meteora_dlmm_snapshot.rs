@@ -183,11 +183,11 @@ fn incomplete_discovered_bin_window_is_rejected() {
     validate_meteora_dlmm_bin_window(&state, 2).unwrap();
 
     state.bin_arrays.remove(&bin_1_key);
-    assert!(matches!(
-        validate_meteora_dlmm_bin_window(&state, 2),
-        Err(SnapshotError::DlmmIncompleteBinWindow {
-            direction: Direction::AtoB,
-            missing: 1,
-        })
-    ));
+    let error = validate_meteora_dlmm_bin_window(&state, 2).unwrap_err();
+    match error {
+        SnapshotError::DlmmIncompleteBinWindow { missing } => {
+            assert_eq!(missing, vec![bin_1_key.to_bytes()]);
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
 }

@@ -20,9 +20,16 @@ pub struct PaperStats {
     pub opportunities_emitted: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DlmmRefreshRequest {
+    pub pool_id: PoolId,
+    pub missing_accounts: Vec<[u8; 32]>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PaperBatch {
     pub opportunities: Vec<Opportunity>,
+    pub dlmm_refresh_requests: Vec<DlmmRefreshRequest>,
     pub queue_full_fallbacks: u64,
     pub pools_evaluated: u64,
 }
@@ -88,6 +95,18 @@ impl PaperPipeline {
 
         for output in outputs {
             let pool_id = output_pool_id(&output);
+
+            #[cfg(feature = "meteora-dlmm")]
+            if let ReactorOutput::PoolInvalidated {
+                reason: crate::reactor::ReactorInvalidation::DlmmIncompleteBinWindow { missing },
+                ..
+            } = &output
+            {
+                batch.dlmm_refresh_requests.push(DlmmRefreshRequest {
+                    pool_id,
+                    missing_accounts: missing.clone(),
+                });
+            }
 
             match &output {
                 ReactorOutput::PoolUpdated { .. } => {
@@ -162,12 +181,14 @@ pub mod async_loop {
 
     use crate::{feed::FeedEvent, opportunity::Opportunity};
 
-    use super::PaperPipeline;
+    use super::{DlmmRefreshRequest, PaperPipeline};
 
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub struct PaperOutputStats {
         pub opportunities_forwarded: u64,
         pub opportunities_dropped: u64,
+        pub refresh_requests_forwarded: u64,
+        pub refresh_requests_dropped: u64,
     }
 
     #[derive(Debug, Error)]
@@ -182,8 +203,26 @@ pub mod async_loop {
     /// cannot keep up, paper opportunities are dropped and counted rather than
     /// applying backpressure to the market-data feed.
     pub async fn run_paper_event_loop(
+        input: mpsc::Receiver<FeedEvent>,
+        output: mpsc::Sender<Opportunity>,
+        pipeline: PaperPipeline,
+    ) -> Result<(PaperPipeline, PaperOutputStats), PaperLoopError> {
+        run_paper_event_loop_inner(input, output, None, pipeline).await
+    }
+
+    pub async fn run_paper_event_loop_with_refresh(
+        input: mpsc::Receiver<FeedEvent>,
+        output: mpsc::Sender<Opportunity>,
+        refresh_output: mpsc::Sender<DlmmRefreshRequest>,
+        pipeline: PaperPipeline,
+    ) -> Result<(PaperPipeline, PaperOutputStats), PaperLoopError> {
+        run_paper_event_loop_inner(input, output, Some(refresh_output), pipeline).await
+    }
+
+    async fn run_paper_event_loop_inner(
         mut input: mpsc::Receiver<FeedEvent>,
         output: mpsc::Sender<Opportunity>,
+        refresh_output: Option<mpsc::Sender<DlmmRefreshRequest>>,
         mut pipeline: PaperPipeline,
     ) -> Result<(PaperPipeline, PaperOutputStats), PaperLoopError> {
         let mut stats = PaperOutputStats::default();
@@ -196,6 +235,25 @@ pub mod async_loop {
                 .min(u64::MAX as u128) as u64;
 
             let batch = pipeline.process_event(event, created_ns);
+
+            for request in batch.dlmm_refresh_requests {
+                match refresh_output.as_ref() {
+                    Some(output) => match output.try_send(request) {
+                        Ok(()) => {
+                            stats.refresh_requests_forwarded =
+                                stats.refresh_requests_forwarded.saturating_add(1);
+                        }
+                        Err(_) => {
+                            stats.refresh_requests_dropped =
+                                stats.refresh_requests_dropped.saturating_add(1);
+                        }
+                    },
+                    None => {
+                        stats.refresh_requests_dropped =
+                            stats.refresh_requests_dropped.saturating_add(1);
+                    }
+                }
+            }
 
             for opportunity in batch.opportunities {
                 match output.try_send(opportunity) {

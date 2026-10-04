@@ -90,13 +90,8 @@ pub enum SnapshotError {
     #[error("duplicate DLMM bin-array account")]
     DlmmDuplicateBinArray,
     #[cfg(feature = "meteora-dlmm")]
-    #[error(
-        "DLMM configured bin window is incomplete for {direction:?}: {missing} required arrays missing"
-    )]
-    DlmmIncompleteBinWindow {
-        direction: Direction,
-        missing: usize,
-    },
+    #[error("DLMM configured bin window is incomplete: required bin arrays are missing")]
+    DlmmIncompleteBinWindow { missing: Vec<[u8; 32]> },
 }
 
 impl From<MintInspectError> for SnapshotError {
@@ -418,19 +413,27 @@ pub fn validate_meteora_dlmm_bin_window(
     state: &crate::quote::meteora_dlmm::MeteoraDlmmQuoteState,
     take_count: u8,
 ) -> Result<(), SnapshotError> {
-    for direction in [Direction::AtoB, Direction::BtoA] {
-        let missing =
-            crate::quote::meteora_dlmm::missing_bin_array_pubkeys(state, direction, take_count)?;
+    let mut missing_accounts = Vec::<[u8; 32]>::new();
 
-        if !missing.is_empty() {
-            return Err(SnapshotError::DlmmIncompleteBinWindow {
-                direction,
-                missing: missing.len(),
-            });
+    for direction in [Direction::AtoB, Direction::BtoA] {
+        for pubkey in
+            crate::quote::meteora_dlmm::missing_bin_array_pubkeys(state, direction, take_count)?
+        {
+            let bytes = pubkey.to_bytes();
+            if !missing_accounts.contains(&bytes) {
+                missing_accounts.push(bytes);
+            }
         }
     }
 
-    Ok(())
+    if missing_accounts.is_empty() {
+        Ok(())
+    } else {
+        missing_accounts.sort_unstable();
+        Err(SnapshotError::DlmmIncompleteBinWindow {
+            missing: missing_accounts,
+        })
+    }
 }
 
 pub fn assemble_raydium_state(

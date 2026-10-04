@@ -149,6 +149,10 @@ pub enum ReactorInvalidation {
         max_allowed: u64,
     },
     Snapshot(String),
+    #[cfg(feature = "meteora-dlmm")]
+    DlmmIncompleteBinWindow {
+        missing: Vec<AccountKey>,
+    },
     SlotFencePending {
         bank: BankIdentity,
     },
@@ -590,5 +594,11 @@ impl PaperStateReactor {
 }
 
 fn snapshot_invalidation(error: SnapshotError) -> ReactorInvalidation {
-    ReactorInvalidation::Snapshot(error.to_string())
+    match error {
+        #[cfg(feature = "meteora-dlmm")]
+        SnapshotError::DlmmIncompleteBinWindow { missing } => {
+            ReactorInvalidation::DlmmIncompleteBinWindow { missing }
+        }
+        other => ReactorInvalidation::Snapshot(other.to_string()),
+    }
 }

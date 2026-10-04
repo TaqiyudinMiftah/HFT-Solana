@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     use hft_solana::{
         feed::yellowstone::{run_account_feed, YellowstoneAccountFilter, YellowstoneConfig},
-        paper::async_loop::run_paper_event_loop,
+        paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
     };
     use tokio::sync::mpsc;
@@ -56,11 +56,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (feed_tx, feed_rx) = mpsc::channel(built.feed_channel_capacity);
     let (opportunity_tx, mut opportunity_rx) = mpsc::channel(built.opportunity_channel_capacity);
+    let (refresh_tx, mut refresh_rx) = mpsc::channel(256);
 
     let mut feed_task = tokio::spawn(run_account_feed(yellowstone, feed_tx));
-    let mut paper_task = tokio::spawn(run_paper_event_loop(
+    let mut paper_task = tokio::spawn(run_paper_event_loop_with_refresh(
         feed_rx,
         opportunity_tx,
+        refresh_tx,
         built.pipeline,
     ));
 
@@ -74,6 +76,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 opportunity.expected_effective_profit,
                 opportunity.expected_cu,
                 opportunity.created_ns,
+            );
+        }
+    });
+
+    let refresh_printer_task = tokio::spawn(async move {
+        while let Some(request) = refresh_rx.recv().await {
+            let missing = request
+                .missing_accounts
+                .into_iter()
+                .map(|account| solana_pubkey::Pubkey::new_from_array(account).to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+
+            eprintln!(
+                "PAPER_DLMM_REFRESH_REQUIRED pool={} missing_accounts={}",
+                request.pool_id, missing
             );
         }
     });
@@ -95,10 +113,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     printer_task.await?;
+    refresh_printer_task.await?;
 
     let stats = pipeline.stats();
     eprintln!(
-        "paper stopped: feed_events={} updates={} invalidations={} evaluated={} opportunities={} forwarded={} dropped={}",
+        "paper stopped: feed_events={} updates={} invalidations={} evaluated={} opportunities={} forwarded={} dropped={} refresh_forwarded={} refresh_dropped={}",
         stats.feed_events,
         stats.reactor_updates,
         stats.reactor_invalidations,
@@ -106,6 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.opportunities_emitted,
         output_stats.opportunities_forwarded,
         output_stats.opportunities_dropped,
+        output_stats.refresh_requests_forwarded,
+        output_stats.refresh_requests_dropped,
     );
 
     Ok(())

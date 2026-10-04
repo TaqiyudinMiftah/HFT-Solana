@@ -4,7 +4,7 @@ use hft_solana::{
     opportunity_engine::{CycleSearchConfig, OpportunityEngine},
     paper::PaperPipeline,
     quote::{pump::PumpFeesBps, raydium::RaydiumFees},
-    reactor::{PaperStateReactor, ReactorOutput},
+    reactor::{PaperStateReactor, ReactorInvalidation, ReactorOutput},
     state::{CreatorFeeOn, PoolState, PumpState, RaydiumCpmmState},
     types::{Direction, StateVersion},
 };
@@ -244,4 +244,30 @@ fn queue_full_fallback_waits_until_entire_batch_is_published() {
     assert_eq!(batch.queue_full_fallbacks, 2);
     assert_eq!(batch.opportunities.len(), 1);
     assert!(batch.opportunities[0].expected_effective_profit > 0);
+}
+
+
+#[cfg(feature = "meteora-dlmm")]
+#[test]
+fn dlmm_incomplete_window_becomes_refresh_request() {
+    let reactor = PaperStateReactor::new(2, 0);
+    let store = ActivePoolStore::new(1, 1);
+    let graph = GraphIndex::from_cycles(1, vec![]);
+    let engine = OpportunityEngine::new(graph, vec![]);
+    let mut pipeline = PaperPipeline::new(reactor, store, engine);
+
+    let missing = vec![[7u8; 32], [8u8; 32]];
+    let batch = pipeline.process_outputs(
+        vec![ReactorOutput::PoolInvalidated {
+            pool_id: 0,
+            reason: ReactorInvalidation::DlmmIncompleteBinWindow {
+                missing: missing.clone(),
+            },
+        }],
+        1,
+    );
+
+    assert_eq!(batch.dlmm_refresh_requests.len(), 1);
+    assert_eq!(batch.dlmm_refresh_requests[0].pool_id, 0);
+    assert_eq!(batch.dlmm_refresh_requests[0].missing_accounts, missing);
 }
