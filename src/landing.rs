@@ -16,8 +16,14 @@ pub struct LandingCandidate {
     pub success_probability_bps: u16,
     /// Priority fee paid on a successful transaction.
     pub priority_fee: u64,
-    /// Relay/provider tip. Atomic tip transfers are modeled as success-only.
+    /// Fixed relay/provider tip. Used when relay_tip_share_bps is None.
     pub relay_tip: u64,
+    /// Optional dynamic relay tip as a share of expected effective profit.
+    pub relay_tip_share_bps: Option<u16>,
+    /// Lower clamp for dynamic relay tip.
+    pub minimum_relay_tip: u64,
+    /// Optional upper clamp for dynamic relay tip.
+    pub maximum_relay_tip: Option<u64>,
     /// Total fee/cost retained by the network when the attempt lands but the
     /// on-chain arb guard reverts. Relay tips are assumed to revert atomically.
     pub failure_fee: u64,
@@ -79,6 +85,28 @@ impl LandingPaperStats {
     }
 }
 
+fn resolve_relay_tip(opportunity: &Opportunity, candidate: LandingCandidate) -> Option<u64> {
+    let Some(share_bps) = candidate.relay_tip_share_bps else {
+        return Some(candidate.relay_tip);
+    };
+
+    if share_bps as u64 > BPS_DENOMINATOR || opportunity.expected_effective_profit <= 0 {
+        return None;
+    }
+
+    let edge = opportunity.expected_effective_profit as u128;
+    let proportional = edge
+        .checked_mul(share_bps as u128)?
+        .checked_div(BPS_DENOMINATOR as u128)?;
+    let mut tip = u64::try_from(proportional).ok()?.max(candidate.minimum_relay_tip);
+
+    if let Some(maximum) = candidate.maximum_relay_tip {
+        tip = tip.min(maximum);
+    }
+
+    Some(tip)
+}
+
 fn tip_share_allowed(effective_profit: i128, relay_tip: u64, max_tip_share_bps: u16) -> bool {
     if effective_profit <= 0 || max_tip_share_bps as u64 > BPS_DENOMINATOR {
         return false;
@@ -99,9 +127,10 @@ pub fn evaluate_landing_candidate(
     if candidate.success_probability_bps as u64 > BPS_DENOMINATOR {
         return None;
     }
+    let relay_tip = resolve_relay_tip(opportunity, candidate)?;
     if !tip_share_allowed(
         opportunity.expected_effective_profit,
-        candidate.relay_tip,
+        relay_tip,
         config.max_tip_share_bps,
     ) {
         return None;
@@ -110,7 +139,7 @@ pub fn evaluate_landing_candidate(
     let success_cost = config
         .base_fee
         .saturating_add(candidate.priority_fee)
-        .saturating_add(candidate.relay_tip);
+        .saturating_add(relay_tip);
     let net_if_landed = opportunity.expected_effective_profit - success_cost as i128;
     if net_if_landed < config.minimum_net_if_landed {
         return None;
@@ -127,7 +156,7 @@ pub fn evaluate_landing_candidate(
         provider: candidate.provider,
         success_probability_bps: candidate.success_probability_bps,
         priority_fee: candidate.priority_fee,
-        relay_tip: candidate.relay_tip,
+        relay_tip,
         net_if_landed,
         expected_value,
     })

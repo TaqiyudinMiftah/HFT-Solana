@@ -271,3 +271,49 @@ fn landing_policy_rejects_invalid_bps_inputs() {
         Err(PaperConfigError::LandingProbabilityOutOfRange { .. })
     ));
 }
+
+
+#[test]
+fn landing_policy_builds_adaptive_tip_candidate_and_validates_clamps() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["landing"] = json!({
+        "base_fee": 5000,
+        "minimum_net_if_landed": 0,
+        "minimum_expected_value": 0,
+        "max_tip_share_bps": 6000,
+        "candidates": [{
+            "provider": "jito",
+            "success_probability_bps": 9000,
+            "priority_fee": 5000,
+            "relay_tip_share_bps": 2500,
+            "minimum_relay_tip": 5000,
+            "maximum_relay_tip": 30000,
+            "failure_fee": 10000
+        }]
+    });
+
+    let built = PaperConfig::from_json_str(&value.to_string())
+        .unwrap()
+        .build()
+        .unwrap();
+    let candidate = built.landing.unwrap().candidates[0];
+
+    assert_eq!(candidate.relay_tip_share_bps, Some(2500));
+    assert_eq!(candidate.minimum_relay_tip, 5000);
+    assert_eq!(candidate.maximum_relay_tip, Some(30000));
+
+    value["landing"]["candidates"][0]["relay_tip_share_bps"] = json!(10001);
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::LandingTipShareOutOfRange { .. })
+    ));
+
+    value["landing"]["candidates"][0]["relay_tip_share_bps"] = json!(2500);
+    value["landing"]["candidates"][0]["minimum_relay_tip"] = json!(40000);
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::LandingTipClampInvalid { .. })
+    ));
+}

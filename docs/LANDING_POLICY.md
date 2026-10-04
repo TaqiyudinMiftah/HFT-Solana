@@ -49,7 +49,12 @@ provider order.
 ## Runtime configuration
 
 The optional `landing` section in the paper JSON config contains one policy
-and a list of candidate paths. For each paper opportunity the runner prints
+and a list of candidate paths. A candidate can use either a fixed `relay_tip`
+or an adaptive `relay_tip_share_bps` derived from the opportunity's expected
+effective profit. Adaptive tips can be clamped with `minimum_relay_tip` and
+`maximum_relay_tip`.
+
+For each paper opportunity the runner resolves the actual tip, then prints
 either `PAPER_LANDING` with the selected candidate or
 `PAPER_LANDING_SKIP` when no path clears all guards.
 
@@ -62,3 +67,21 @@ telemetry and failed/successful transaction costs.
 This layer only evaluates economics. It intentionally has no transaction
 builder, signer, private key, Jito bundle sender, Helius Sender client, or
 mainnet submission capability.
+
+
+## Adaptive tip model
+
+When `relay_tip_share_bps` is configured:
+
+```text
+raw_tip = expected_effective_profit * relay_tip_share_bps / 10000
+relay_tip = clamp(raw_tip, minimum_relay_tip, maximum_relay_tip)
+```
+
+The global `max_tip_share_bps` guard is still applied after the clamp. This
+keeps the dynamic model bounded even when the configured minimum tip dominates
+a small opportunity.
+
+Fixed `relay_tip` remains supported for deterministic replay and backward
+compatibility. If `relay_tip_share_bps` is present, it takes precedence over
+the fixed value.

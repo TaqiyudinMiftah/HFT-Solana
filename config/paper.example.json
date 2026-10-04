@@ -24,14 +24,18 @@
         "provider": "jito",
         "success_probability_bps": 9000,
         "priority_fee": 5000,
-        "relay_tip": 20000,
+        "relay_tip_share_bps": 3000,
+        "minimum_relay_tip": 5000,
+        "maximum_relay_tip": 50000,
         "failure_fee": 10000
       },
       {
         "provider": "helius_sender",
         "success_probability_bps": 8500,
         "priority_fee": 5000,
-        "relay_tip": 15000,
+        "relay_tip_share_bps": 2500,
+        "minimum_relay_tip": 5000,
+        "maximum_relay_tip": 40000,
         "failure_fee": 10000
       }
     ]

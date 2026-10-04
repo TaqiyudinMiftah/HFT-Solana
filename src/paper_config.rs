@@ -53,7 +53,14 @@ pub struct LandingCandidateConfig {
     pub provider: LandingProviderConfig,
     pub success_probability_bps: u16,
     pub priority_fee: u64,
+    #[serde(default)]
     pub relay_tip: u64,
+    #[serde(default)]
+    pub relay_tip_share_bps: Option<u16>,
+    #[serde(default)]
+    pub minimum_relay_tip: u64,
+    #[serde(default)]
+    pub maximum_relay_tip: Option<u64>,
     pub failure_fee: u64,
 }
 
@@ -214,6 +221,10 @@ pub enum PaperConfigError {
     LandingTipShareOutOfRange { value: u16 },
     #[error("landing candidate {candidate} success_probability_bps must be <= 10000, got {value}")]
     LandingProbabilityOutOfRange { candidate: usize, value: u16 },
+    #[error("landing candidate {candidate} relay_tip_share_bps must be <= 10000, got {value}")]
+    LandingTipShareOutOfRange { candidate: usize, value: u16 },
+    #[error("landing candidate {candidate} minimum_relay_tip exceeds maximum_relay_tip")]
+    LandingTipClampInvalid { candidate: usize },
     #[error("cycle {cycle} references pool {pool}, but only {pool_count} pools exist")]
     PoolOutOfRange {
         cycle: usize,
@@ -368,11 +379,29 @@ fn build_landing_policy(config: LandingConfig) -> Result<BuiltLandingPolicy, Pap
                 });
             }
 
+            if let Some(share_bps) = candidate.relay_tip_share_bps {
+                if share_bps > 10_000 {
+                    return Err(PaperConfigError::LandingTipShareOutOfRange {
+                        candidate: index,
+                        value: share_bps,
+                    });
+                }
+            }
+            if candidate
+                .maximum_relay_tip
+                .is_some_and(|maximum| candidate.minimum_relay_tip > maximum)
+            {
+                return Err(PaperConfigError::LandingTipClampInvalid { candidate: index });
+            }
+
             Ok(LandingCandidate {
                 provider: candidate.provider.into(),
                 success_probability_bps: candidate.success_probability_bps,
                 priority_fee: candidate.priority_fee,
                 relay_tip: candidate.relay_tip,
+                relay_tip_share_bps: candidate.relay_tip_share_bps,
+                minimum_relay_tip: candidate.minimum_relay_tip,
+                maximum_relay_tip: candidate.maximum_relay_tip,
                 failure_fee: candidate.failure_fee,
             })
         })
