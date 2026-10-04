@@ -271,7 +271,6 @@ fn dlmm_incomplete_window_becomes_refresh_request() {
     assert_eq!(batch.dlmm_refresh_requests[0].missing_accounts, missing);
 }
 
-
 #[test]
 fn bootstrap_seed_defers_search_until_final_state_is_ready() {
     let reactor = PaperStateReactor::new(2, 0);
