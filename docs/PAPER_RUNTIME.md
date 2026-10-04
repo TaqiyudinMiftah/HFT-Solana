@@ -23,9 +23,13 @@ registers newly observed arrays automatically.
 export HFT_YELLOWSTONE_ENDPOINT="https://your-yellowstone-endpoint"
 export HFT_YELLOWSTONE_X_TOKEN="optional-token"
 export HFT_SOLANA_RPC_URL="https://your-solana-rpc"
+# Optional; defaults to 30 seconds.
+export HFT_BOOTSTRAP_TIMEOUT_SECS="30"
 ```
 
-Using the RPC bootstrap is strongly recommended. Without it, readiness depends
+Using the RPC bootstrap is strongly recommended. If the RPC snapshot does not
+finish before `HFT_BOOTSTRAP_TIMEOUT_SECS`, startup fails explicitly rather
+than waiting indefinitely. Without it, readiness depends
 on every required account being observed in the live stream after process
 start.
 
@@ -47,6 +51,8 @@ Expected bootstrap diagnostics include:
 - buffered events applied
 - stale/ambiguous buffered events rejected
 - initial paper opportunity count
+- RPC bootstrap elapsed milliseconds
+- Yellowstone buffer occupancy at snapshot completion
 
 A line containing `PAPER_DLMM_BOOTSTRAP_INCOMPLETE` means the current DLMM
 bin window could not yet be made quote-complete. The engine fails closed for

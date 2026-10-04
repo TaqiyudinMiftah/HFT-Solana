@@ -89,6 +89,8 @@ Strongly recommended startup bootstrap:
 
 ```bash
 export HFT_SOLANA_RPC_URL="https://..."
+# Optional; defaults to 30 seconds.
+export HFT_BOOTSTRAP_TIMEOUT_SECS="30"
 ```
 
 When `HFT_SOLANA_RPC_URL` is present, the process:
