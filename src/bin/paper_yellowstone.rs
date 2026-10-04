@@ -20,7 +20,9 @@ fn unix_now_ns() -> Result<u64, std::io::Error> {
 #[cfg(feature = "yellowstone")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use std::{env, fs, io};
+    use std::{env, fs, io, time::Duration};
+
+    use std::time::Instant;
 
     use hft_solana::{
         bootstrap_rpc::{apply_bootstrap_catchup, fetch_bootstrap_snapshot, BootstrapRpcConfig},
@@ -135,12 +137,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .filter(|value| !value.is_empty())
     {
-        let snapshot = fetch_bootstrap_snapshot(&BootstrapRpcConfig {
-            rpc_url,
-            explicit_accounts: built.account_filters.clone(),
-            dlmm_bin_pairs: built.dlmm_bin_pairs.clone(),
-        })
-        .await?;
+        let bootstrap_timeout_secs = env::var("HFT_BOOTSTRAP_TIMEOUT_SECS")
+            .ok()
+            .map(|value| {
+                value.parse::<u64>().map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "HFT_BOOTSTRAP_TIMEOUT_SECS must be an unsigned integer",
+                    )
+                })
+            })
+            .transpose()?
+            .unwrap_or(30);
+
+        let bootstrap_started = Instant::now();
+        let snapshot = tokio::time::timeout(
+            Duration::from_secs(bootstrap_timeout_secs),
+            fetch_bootstrap_snapshot(&BootstrapRpcConfig {
+                rpc_url,
+                explicit_accounts: built.account_filters.clone(),
+                dlmm_bin_pairs: built.dlmm_bin_pairs.clone(),
+            }),
+        )
+        .await
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!(
+                    "RPC bootstrap exceeded HFT_BOOTSTRAP_TIMEOUT_SECS={bootstrap_timeout_secs}"
+                ),
+            )
+        })??;
+        let bootstrap_rpc_elapsed_ms = bootstrap_started.elapsed().as_millis();
 
         if feed_task.is_finished() {
             match feed_task.await? {
@@ -161,6 +189,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // snapshot completed. Events arriving after this finite prefix remains
         // queued for the normal paper loop.
         let buffered = feed_rx.len();
+        let bootstrap_buffer_capacity = built.feed_channel_capacity;
+        let bootstrap_buffer_fill_bps = if bootstrap_buffer_capacity == 0 {
+            0
+        } else {
+            ((buffered as u128)
+                .saturating_mul(10_000)
+                .checked_div(bootstrap_buffer_capacity as u128)
+                .unwrap_or(0))
+            .min(10_000) as u64
+        };
         let mut buffered_events = Vec::with_capacity(buffered);
         for _ in 0..buffered {
             let Ok(event) = feed_rx.try_recv() else {
@@ -198,10 +236,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         eprintln!(
-            "paper bootstrap: explicit_accounts={} dlmm_bin_arrays={} context_slot={} buffered_applied={} buffered_stale={} initial_opportunities={}",
+            "paper bootstrap: explicit_accounts={} dlmm_bin_arrays={} context_slot={} rpc_elapsed_ms={} buffered_at_snapshot={} buffer_capacity={} buffer_fill_bps={} buffered_applied={} buffered_stale={} initial_opportunities={}",
             catchup.explicit_accounts,
             catchup.scoped_dlmm_bin_arrays,
             catchup.context_slot,
+            bootstrap_rpc_elapsed_ms,
+            buffered,
+            bootstrap_buffer_capacity,
+            bootstrap_buffer_fill_bps,
             catchup.buffered_applied,
             catchup.buffered_stale,
             bootstrap_opportunities_forwarded,
