@@ -272,7 +272,6 @@ fn landing_policy_rejects_invalid_bps_inputs() {
     ));
 }
 
-
 #[test]
 fn landing_policy_builds_adaptive_tip_candidate_and_validates_clamps() {
     let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();

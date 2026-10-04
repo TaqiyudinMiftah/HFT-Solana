@@ -98,7 +98,9 @@ fn resolve_relay_tip(opportunity: &Opportunity, candidate: LandingCandidate) -> 
     let proportional = edge
         .checked_mul(share_bps as u128)?
         .checked_div(BPS_DENOMINATOR as u128)?;
-    let mut tip = u64::try_from(proportional).ok()?.max(candidate.minimum_relay_tip);
+    let mut tip = u64::try_from(proportional)
+        .ok()?
+        .max(candidate.minimum_relay_tip);
 
     if let Some(maximum) = candidate.maximum_relay_tip {
         tip = tip.min(maximum);

@@ -17,7 +17,6 @@ fn opportunity(edge: i128) -> Opportunity {
     }
 }
 
-
 fn fixed_candidate(
     provider: LandingProvider,
     success_probability_bps: u16,
@@ -144,7 +143,6 @@ fn paper_stats_track_provider_mix_skips_and_ev() {
     );
 }
 
-
 #[test]
 fn adaptive_relay_tip_scales_with_edge_and_respects_clamps() {
     let candidate = LandingCandidate {
@@ -158,27 +156,39 @@ fn adaptive_relay_tip_scales_with_edge_and_respects_clamps() {
         failure_fee: 10_000,
     };
 
-    let small = evaluate_landing_candidate(&opportunity(10_000), candidate, LandingPolicyConfig {
-        minimum_net_if_landed: 0,
-        minimum_expected_value: i128::MIN,
-        ..config()
-    })
+    let small = evaluate_landing_candidate(
+        &opportunity(10_000),
+        candidate,
+        LandingPolicyConfig {
+            minimum_net_if_landed: 0,
+            minimum_expected_value: i128::MIN,
+            ..config()
+        },
+    )
     .unwrap();
     assert_eq!(small.relay_tip, 5_000);
 
-    let middle = evaluate_landing_candidate(&opportunity(80_000), candidate, LandingPolicyConfig {
-        minimum_net_if_landed: 0,
-        minimum_expected_value: i128::MIN,
-        ..config()
-    })
+    let middle = evaluate_landing_candidate(
+        &opportunity(80_000),
+        candidate,
+        LandingPolicyConfig {
+            minimum_net_if_landed: 0,
+            minimum_expected_value: i128::MIN,
+            ..config()
+        },
+    )
     .unwrap();
     assert_eq!(middle.relay_tip, 20_000);
 
-    let large = evaluate_landing_candidate(&opportunity(200_000), candidate, LandingPolicyConfig {
-        minimum_net_if_landed: 0,
-        minimum_expected_value: i128::MIN,
-        ..config()
-    })
+    let large = evaluate_landing_candidate(
+        &opportunity(200_000),
+        candidate,
+        LandingPolicyConfig {
+            minimum_net_if_landed: 0,
+            minimum_expected_value: i128::MIN,
+            ..config()
+        },
+    )
     .unwrap();
     assert_eq!(large.relay_tip, 30_000);
 }
