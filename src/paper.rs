@@ -304,8 +304,7 @@ pub mod async_loop {
             let batch = pipeline.process_event(event, created_ns);
             let elapsed_ns = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
             stats.events_processed = stats.events_processed.saturating_add(1);
-            stats.event_process_ns_total =
-                stats.event_process_ns_total.saturating_add(elapsed_ns);
+            stats.event_process_ns_total = stats.event_process_ns_total.saturating_add(elapsed_ns);
             stats.event_process_ns_max = stats.event_process_ns_max.max(elapsed_ns);
 
             for request in batch.dlmm_refresh_requests {

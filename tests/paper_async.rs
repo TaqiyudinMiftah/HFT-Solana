@@ -38,10 +38,9 @@ async fn async_loop_records_event_processing_telemetry() {
         .unwrap();
     drop(feed_tx);
 
-    let (pipeline, stats) =
-        run_paper_event_loop(feed_rx, opportunity_tx, empty_pipeline())
-            .await
-            .unwrap();
+    let (pipeline, stats) = run_paper_event_loop(feed_rx, opportunity_tx, empty_pipeline())
+        .await
+        .unwrap();
 
     assert_eq!(stats.events_processed, 1);
     assert_eq!(stats.event_process_ns_total, stats.event_process_ns_max);
