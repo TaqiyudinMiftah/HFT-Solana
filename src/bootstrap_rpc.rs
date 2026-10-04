@@ -15,6 +15,7 @@ use thiserror::Error;
 use crate::{
     decode::meteora_dlmm::{BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID},
     feed::{AccountUpdate, FeedEvent},
+    paper::{DlmmRefreshRequest, PaperBatch, PaperPipeline},
 };
 
 const GET_MULTIPLE_ACCOUNTS_LIMIT: usize = 100;
@@ -153,6 +154,57 @@ pub async fn fetch_bootstrap_snapshot(
     })
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BootstrapCatchupResult {
+    pub explicit_accounts: usize,
+    pub scoped_dlmm_bin_arrays: usize,
+    pub context_slot: u64,
+    pub buffered_applied: usize,
+    pub buffered_stale: usize,
+    pub refresh_requests: Vec<DlmmRefreshRequest>,
+    pub initial: PaperBatch,
+}
+
+/// Seed the RPC snapshot, replay a finite buffered Yellowstone prefix, and
+/// evaluate opportunities exactly once from the final caught-up state.
+///
+/// Search is intentionally suppressed during both snapshot seeding and
+/// buffered replay. This prevents partial bootstrap state from mutating
+/// OpportunityEngine dedup state or emitting stale opportunities.
+pub fn apply_bootstrap_catchup<I>(
+    pipeline: &mut PaperPipeline,
+    snapshot: BootstrapSnapshot,
+    buffered_events: I,
+    created_ns: u64,
+) -> BootstrapCatchupResult
+where
+    I: IntoIterator<Item = FeedEvent>,
+{
+    let startup_slots = startup_account_slots(&snapshot);
+    let mut result = BootstrapCatchupResult {
+        explicit_accounts: snapshot.explicit_accounts,
+        scoped_dlmm_bin_arrays: snapshot.scoped_dlmm_bin_arrays,
+        context_slot: snapshot.max_context_slot,
+        ..BootstrapCatchupResult::default()
+    };
+
+    for event in snapshot.events {
+        result.refresh_requests.extend(pipeline.seed_event(event));
+    }
+
+    for event in buffered_events {
+        if live_event_is_not_older_than_bootstrap(&event, &startup_slots) {
+            result.refresh_requests.extend(pipeline.seed_event(event));
+            result.buffered_applied = result.buffered_applied.saturating_add(1);
+        } else {
+            result.buffered_stale = result.buffered_stale.saturating_add(1);
+        }
+    }
+
+    result.initial = pipeline.evaluate_ready_pools(created_ns);
+    result
+}
+
 pub fn startup_account_slots(snapshot: &BootstrapSnapshot) -> BTreeMap<[u8; 32], u64> {
     snapshot
         .events
@@ -236,6 +288,80 @@ mod tests {
             },
             &slots,
         ));
+    }
+
+    fn empty_pipeline() -> PaperPipeline {
+        use crate::{
+            active_store::ActivePoolStore,
+            graph::GraphIndex,
+            opportunity_engine::OpportunityEngine,
+            reactor::PaperStateReactor,
+        };
+
+        PaperPipeline::new(
+            PaperStateReactor::new(4, 0),
+            ActivePoolStore::new(0, 1),
+            OpportunityEngine::new(GraphIndex::from_cycles(0, Vec::new()), Vec::new()),
+        )
+    }
+
+    #[test]
+    fn catchup_applies_snapshot_then_only_non_stale_buffered_prefix() {
+        let key = [1u8; 32];
+        let owner = [2u8; 32];
+        let snapshot = BootstrapSnapshot {
+            events: vec![FeedEvent::Account(AccountUpdate {
+                pubkey: key,
+                owner,
+                slot: 100,
+                write_version: 0,
+                generation: 0,
+                bank_id: None,
+                is_startup: true,
+                data: vec![10],
+            })],
+            explicit_accounts: 1,
+            scoped_dlmm_bin_arrays: 0,
+            max_context_slot: 100,
+        };
+
+        let live = |slot, write_version, data| {
+            FeedEvent::Account(AccountUpdate {
+                pubkey: key,
+                owner,
+                slot,
+                write_version,
+                generation: 1,
+                bank_id: Some(9),
+                is_startup: false,
+                data: vec![data],
+            })
+        };
+
+        let mut pipeline = empty_pipeline();
+        let result = apply_bootstrap_catchup(
+            &mut pipeline,
+            snapshot,
+            vec![live(99, 1, 9), live(100, 2, 20), live(101, 3, 30)],
+            777,
+        );
+
+        assert_eq!(result.explicit_accounts, 1);
+        assert_eq!(result.context_slot, 100);
+        assert_eq!(result.buffered_stale, 1);
+        assert_eq!(result.buffered_applied, 2);
+        assert!(result.initial.opportunities.is_empty());
+        assert!(result.refresh_requests.is_empty());
+
+        let current = pipeline.reactor().journal().current(&key).unwrap();
+        assert_eq!(current.slot, 101);
+        assert_eq!(current.write_version, 3);
+        assert_eq!(current.data, vec![30]);
+
+        // One bootstrap event + two accepted live events. The stale slot-99
+        // update never reaches the reactor.
+        assert_eq!(pipeline.stats().feed_events, 3);
+        assert_eq!(pipeline.stats().pools_evaluated, 0);
     }
 
     #[test]

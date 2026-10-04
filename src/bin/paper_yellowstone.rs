@@ -23,10 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env, fs, io};
 
     use hft_solana::{
-        bootstrap_rpc::{
-            fetch_bootstrap_snapshot, live_event_is_not_older_than_bootstrap,
-            startup_account_slots, BootstrapRpcConfig,
-        },
+        bootstrap_rpc::{apply_bootstrap_catchup, fetch_bootstrap_snapshot, BootstrapRpcConfig},
         decode::meteora_dlmm::{
             BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID,
         },
@@ -159,49 +156,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let startup_slots = startup_account_slots(&snapshot);
-        let bootstrap_explicit = snapshot.explicit_accounts;
-        let bootstrap_dlmm_bins = snapshot.scoped_dlmm_bin_arrays;
-        let bootstrap_slot = snapshot.max_context_slot;
-
-        for event in snapshot.events {
-            for request in built.pipeline.seed_event(event) {
-                eprintln!(
-                    "PAPER_DLMM_BOOTSTRAP_INCOMPLETE pool={} missing_accounts={}",
-                    request.pool_id,
-                    request.missing_accounts.len(),
-                );
-            }
-        }
-
         // Drain only the events that were already buffered when the RPC
-        // snapshot completed. Events arriving during this finite drain remain
+        // snapshot completed. Events arriving after this finite prefix remains
         // queued for the normal paper loop.
         let buffered = feed_rx.len();
-        let mut buffered_applied = 0usize;
-        let mut buffered_stale = 0usize;
+        let mut buffered_events = Vec::with_capacity(buffered);
         for _ in 0..buffered {
             let Ok(event) = feed_rx.try_recv() else {
                 break;
             };
-
-            if !live_event_is_not_older_than_bootstrap(&event, &startup_slots) {
-                buffered_stale = buffered_stale.saturating_add(1);
-                continue;
-            }
-
-            for request in built.pipeline.seed_event(event) {
-                eprintln!(
-                    "PAPER_DLMM_BOOTSTRAP_INCOMPLETE pool={} missing_accounts={}",
-                    request.pool_id,
-                    request.missing_accounts.len(),
-                );
-            }
-            buffered_applied = buffered_applied.saturating_add(1);
+            buffered_events.push(event);
         }
 
-        let initial = built.pipeline.evaluate_ready_pools(unix_now_ns()?);
-        for opportunity in initial.opportunities {
+        let catchup = apply_bootstrap_catchup(
+            &mut built.pipeline,
+            snapshot,
+            buffered_events,
+            unix_now_ns()?,
+        );
+
+        for request in catchup.refresh_requests {
+            eprintln!(
+                "PAPER_DLMM_BOOTSTRAP_INCOMPLETE pool={} missing_accounts={}",
+                request.pool_id,
+                request.missing_accounts.len(),
+            );
+        }
+
+        for opportunity in catchup.initial.opportunities {
             match opportunity_tx.try_send(opportunity) {
                 Ok(()) => {
                     bootstrap_opportunities_forwarded =
@@ -216,11 +198,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         eprintln!(
             "paper bootstrap: explicit_accounts={} dlmm_bin_arrays={} context_slot={} buffered_applied={} buffered_stale={} initial_opportunities={}",
-            bootstrap_explicit,
-            bootstrap_dlmm_bins,
-            bootstrap_slot,
-            buffered_applied,
-            buffered_stale,
+            catchup.explicit_accounts,
+            catchup.scoped_dlmm_bin_arrays,
+            catchup.context_slot,
+            catchup.buffered_applied,
+            catchup.buffered_stale,
             bootstrap_opportunities_forwarded,
         );
     } else {
