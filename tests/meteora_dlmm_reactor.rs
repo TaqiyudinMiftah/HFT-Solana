@@ -78,6 +78,7 @@ fn setup_reactor() -> PaperStateReactor {
         bitmap_extension: None,
         mint_x: key(TOKEN_X_MINT),
         mint_y: key(TOKEN_Y_MINT),
+        bin_array_take_count: 2,
     }));
     reactor
 }

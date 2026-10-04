@@ -85,3 +85,19 @@ fork conflict.
 
 This prevents the searcher from observing a half-applied DLMM swap while also
 avoiding false invalidation of untouched bin arrays.
+
+
+## Bin-window safety gate
+
+Each DLMM pool configuration now carries `bin_array_take_count` (default 2).
+After assembling a quote snapshot, the reactor asks the official SDK which bin
+array pubkeys are required in **both** swap directions.
+
+If any required pubkey is absent from the configured/subscribed window, the
+snapshot is rejected and the pool remains inactive. This is intentionally
+fail-closed: an active-bin movement must never turn missing liquidity into an
+optimistic quote.
+
+Dynamic subscription refresh is the next layer. Until that exists, operators
+can provision a wider static bin window and raise `bin_array_take_count`
+accordingly.

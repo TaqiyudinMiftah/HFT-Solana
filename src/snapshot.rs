@@ -26,7 +26,7 @@ use crate::{
         QuoteError,
     },
     state::{PumpState, RaydiumCpmmState},
-    types::StateVersion,
+    types::{Direction, StateVersion},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +89,14 @@ pub enum SnapshotError {
     #[cfg(feature = "meteora-dlmm")]
     #[error("duplicate DLMM bin-array account")]
     DlmmDuplicateBinArray,
+    #[cfg(feature = "meteora-dlmm")]
+    #[error(
+        "DLMM configured bin window is incomplete for {direction:?}: {missing} required arrays missing"
+    )]
+    DlmmIncompleteBinWindow {
+        direction: Direction,
+        missing: usize,
+    },
 }
 
 impl From<MintInspectError> for SnapshotError {
@@ -403,6 +411,27 @@ pub fn assemble_meteora_dlmm_quote_state(
         mint_x_account,
         mint_y_account,
     })
+}
+
+
+#[cfg(feature = "meteora-dlmm")]
+pub fn validate_meteora_dlmm_bin_window(
+    state: &crate::quote::meteora_dlmm::MeteoraDlmmQuoteState,
+    take_count: u8,
+) -> Result<(), SnapshotError> {
+    for direction in [Direction::AtoB, Direction::BtoA] {
+        let missing =
+            crate::quote::meteora_dlmm::missing_bin_array_pubkeys(state, direction, take_count)?;
+
+        if !missing.is_empty() {
+            return Err(SnapshotError::DlmmIncompleteBinWindow {
+                direction,
+                missing: missing.len(),
+            });
+        }
+    }
+
+    Ok(())
 }
 
 pub fn assemble_raydium_state(

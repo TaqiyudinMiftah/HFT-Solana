@@ -49,6 +49,10 @@ impl Default for RuntimeConfig {
     }
 }
 
+fn default_dlmm_bin_array_take_count() -> u8 {
+    2
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PoolConfig {
@@ -83,6 +87,8 @@ pub enum PoolConfig {
         bitmap_extension: Option<String>,
         mint_x: String,
         mint_y: String,
+        #[serde(default = "default_dlmm_bin_array_take_count")]
+        bin_array_take_count: u8,
     },
 }
 
@@ -153,6 +159,8 @@ pub enum PaperConfigError {
     InvalidCycleLength { cycle: usize },
     #[error("Meteora DLMM pool must configure at least one bin array")]
     DlmmNoBinArrays,
+    #[error("Meteora DLMM bin_array_take_count must be nonzero")]
+    DlmmZeroBinArrayTakeCount,
     #[error("cycle {cycle} references pool {pool}, but only {pool_count} pools exist")]
     PoolOutOfRange {
         cycle: usize,
@@ -394,9 +402,13 @@ fn build_pool_recipe(
             bitmap_extension,
             mint_x,
             mint_y,
+            bin_array_take_count,
         } => {
             if bin_arrays.is_empty() {
                 return Err(PaperConfigError::DlmmNoBinArrays);
+            }
+            if bin_array_take_count == 0 {
+                return Err(PaperConfigError::DlmmZeroBinArrayTakeCount);
             }
 
             let lb_pair = parse_key("pools[].lb_pair", lb_pair)?;
@@ -428,6 +440,7 @@ fn build_pool_recipe(
                     bitmap_extension,
                     mint_x,
                     mint_y,
+                    bin_array_take_count,
                 }),
                 accounts,
                 PoolTopology {

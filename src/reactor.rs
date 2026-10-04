@@ -41,6 +41,7 @@ pub struct MeteoraDlmmRecipe {
     pub bitmap_extension: Option<AccountKey>,
     pub mint_x: AccountKey,
     pub mint_y: AccountKey,
+    pub bin_array_take_count: u8,
 }
 
 #[derive(Clone, Debug)]
@@ -471,11 +472,16 @@ impl PaperStateReactor {
                     mint_y.owner,
                     &mint_y.data,
                 )
-                .map(|quote| {
-                    PoolState::MeteoraDlmm(crate::state::MeteoraDlmmState {
+                .and_then(|quote| {
+                    crate::snapshot::validate_meteora_dlmm_bin_window(
+                        &quote,
+                        recipe.bin_array_take_count,
+                    )?;
+
+                    Ok(PoolState::MeteoraDlmm(crate::state::MeteoraDlmmState {
                         version,
                         quote: std::sync::Arc::new(quote),
-                    })
+                    }))
                 })
             }
         };

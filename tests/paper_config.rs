@@ -160,3 +160,24 @@ fn dlmm_config_rejects_empty_bin_array_window() {
         Err(PaperConfigError::DlmmNoBinArrays)
     ));
 }
+
+
+#[test]
+fn dlmm_config_rejects_zero_bin_array_take_count() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["pools"].as_array_mut().unwrap().push(json!({
+        "kind": "meteora_dlmm",
+        "lb_pair": key(20),
+        "bin_arrays": [key(21), key(22)],
+        "bitmap_extension": null,
+        "mint_x": key(24),
+        "mint_y": key(25),
+        "bin_array_take_count": 0
+    }));
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::DlmmZeroBinArrayTakeCount)
+    ));
+}

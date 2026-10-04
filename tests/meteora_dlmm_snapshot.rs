@@ -4,7 +4,9 @@ use std::str::FromStr;
 
 use hft_solana::{
     quote::meteora_dlmm::quote_exact_in_official,
-    snapshot::{assemble_meteora_dlmm_quote_state, SnapshotError},
+    snapshot::{
+        assemble_meteora_dlmm_quote_state, validate_meteora_dlmm_bin_window, SnapshotError,
+    },
     types::{Direction, StateVersion},
 };
 use solana_sdk_v2::pubkey::Pubkey;
@@ -129,4 +131,64 @@ fn raw_snapshot_rejects_configured_mint_mismatch() {
     );
 
     assert!(matches!(result, Err(SnapshotError::DlmmMintMismatch)));
+}
+
+
+#[test]
+fn incomplete_discovered_bin_window_is_rejected() {
+    let pair = include_bytes!(concat!(
+        "../fixtures/meteora_dlmm/",
+        "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd/lb_pair.bin"
+    ));
+    let bin_1 = include_bytes!(concat!(
+        "../fixtures/meteora_dlmm/",
+        "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd/bin_array_1.bin"
+    ));
+    let bin_2 = include_bytes!(concat!(
+        "../fixtures/meteora_dlmm/",
+        "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd/bin_array_2.bin"
+    ));
+    let mint_x = include_bytes!(concat!(
+        "../fixtures/meteora_dlmm/",
+        "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd/token_x_mint.bin"
+    ));
+    let mint_y = include_bytes!(concat!(
+        "../fixtures/meteora_dlmm/",
+        "9t3EyC9FweyL7PBWvKz3mrXg8B9fwFc9SK3QxM4ENqhd/token_y_mint.bin"
+    ));
+
+    let pair_key = Pubkey::from_str(LB_PAIR).unwrap();
+    let bin_1_key = Pubkey::from_str(BIN_ARRAY_1).unwrap();
+    let bin_2_key = Pubkey::from_str(BIN_ARRAY_2).unwrap();
+    let mint_x_key = Pubkey::from_str(TOKEN_X_MINT).unwrap();
+    let mint_y_key = Pubkey::from_str(TOKEN_Y_MINT).unwrap();
+    let token_program = Pubkey::from_str(TOKEN_PROGRAM).unwrap();
+
+    let mut state = assemble_meteora_dlmm_quote_state(
+        pair_key.to_bytes(),
+        pair,
+        &[
+            (bin_1_key.to_bytes(), bin_1.as_slice()),
+            (bin_2_key.to_bytes(), bin_2.as_slice()),
+        ],
+        None,
+        mint_x_key.to_bytes(),
+        token_program.to_bytes(),
+        mint_x,
+        mint_y_key.to_bytes(),
+        token_program.to_bytes(),
+        mint_y,
+    )
+    .unwrap();
+
+    validate_meteora_dlmm_bin_window(&state, 2).unwrap();
+
+    state.bin_arrays.remove(&bin_1_key);
+    assert!(matches!(
+        validate_meteora_dlmm_bin_window(&state, 2),
+        Err(SnapshotError::DlmmIncompleteBinWindow {
+            direction: Direction::AtoB,
+            missing: 1,
+        })
+    ));
 }
