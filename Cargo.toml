@@ -6,6 +6,10 @@ publish = false
 
 [features]
 default = []
+calibration = [
+    "dep:serde",
+    "dep:serde_json",
+]
 meteora-damm = [
     "dep:bytemuck",
     "dep:meteora-cp-amm",
@@ -22,8 +26,7 @@ yellowstone = [
     "dep:tokio",
     "dep:yellowstone-grpc-client",
     "dep:yellowstone-grpc-proto",
-    "dep:serde",
-    "dep:serde_json",
+    "calibration",
     "dep:solana-client",
     "dep:solana-account-decoder-client-types",
 ]
@@ -52,3 +55,9 @@ yellowstone-grpc-proto = { version = "13.0.0", optional = true }
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+
+[[bin]]
+name = "calibrate_landing"
+path = "src/bin/calibrate_landing.rs"
+required-features = ["calibration"]

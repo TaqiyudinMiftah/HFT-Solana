@@ -6,6 +6,8 @@ pub mod feed;
 pub mod graph;
 pub mod landing;
 pub mod landing_calibration;
+#[cfg(feature = "calibration")]
+pub mod landing_calibration_io;
 pub mod opportunity;
 pub mod opportunity_engine;
 pub mod paper;

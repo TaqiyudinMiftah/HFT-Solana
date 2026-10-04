@@ -72,6 +72,10 @@ impl LandingProbabilityCalibrator {
         Self::new(ProbabilityPrior::laplace()).expect("Laplace prior is valid")
     }
 
+    pub fn prior(&self) -> ProbabilityPrior {
+        self.prior
+    }
+
     pub fn observe(&mut self, outcome: LandingOutcome) {
         if outcome.weight == 0 {
             return;

@@ -57,3 +57,39 @@ unchanged.
 The current paper runtime does not auto-learn from unlabeled opportunities.
 A probability estimate should only be applied after ingesting explicit outcome
 labels from replay or observed transaction results.
+
+
+## JSONL replay importer
+
+Enable the calibration feature and run:
+
+```bash
+cargo run --release --features calibration --bin calibrate_landing -- \
+  observations.jsonl
+```
+
+Optional positional arguments override the prior:
+
+```bash
+cargo run --release --features calibration --bin calibrate_landing -- \
+  observations.jsonl 2 1
+```
+
+Each non-empty JSONL line has:
+
+```json
+{"provider":"jito","success":true,"weight":1}
+```
+
+Supported provider values are:
+
+- `direct`
+- `jito`
+- `helius_sender`
+
+`weight` defaults to 1.
+
+The command prints a JSON report containing observed successes/failures,
+sample counts, and smoothed `success_probability_bps` for every provider.
+The report is intended to feed reviewed paper configuration; it does not
+modify runtime state automatically.
