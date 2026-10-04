@@ -12,7 +12,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::{env, fs, io};
 
     use hft_solana::{
-        feed::yellowstone::{run_account_feed, YellowstoneAccountFilter, YellowstoneConfig},
+        decode::meteora_dlmm::{
+            BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID,
+        },
+        feed::yellowstone::{
+            run_account_feed, YellowstoneAccountFilter, YellowstoneConfig,
+            YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
+        },
         paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
     };
@@ -46,6 +52,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         filter: YellowstoneAccountFilter {
             accounts: built.account_filters.clone(),
             owners: Vec::new(),
+            scoped: built
+                .dlmm_bin_pairs
+                .iter()
+                .enumerate()
+                .map(|(index, lb_pair)| YellowstoneScopedAccountFilter {
+                    name: format!("dlmm-bin-{index}"),
+                    owners: vec![DLMM_PROGRAM_ID.to_owned()],
+                    memcmp: vec![
+                        YellowstoneMemcmpFilter {
+                            offset: 0,
+                            bytes: BIN_ARRAY_DISCRIMINATOR.to_vec(),
+                        },
+                        YellowstoneMemcmpFilter {
+                            offset: BIN_ARRAY_LB_PAIR_OFFSET,
+                            bytes: lb_pair.to_vec(),
+                        },
+                    ],
+                })
+                .collect(),
         },
     };
 

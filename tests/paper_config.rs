@@ -140,6 +140,7 @@ fn dlmm_config_subscribes_pair_bins_bitmap_and_mints() {
         assert!(built.account_filters.contains(&account));
     }
     assert_eq!(built.account_filters.len(), 18);
+    assert_eq!(built.dlmm_bin_pairs, vec![Pubkey::new_from_array([20u8; 32]).to_bytes()]);
 }
 
 #[test]

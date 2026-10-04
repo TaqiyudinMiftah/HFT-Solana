@@ -5,11 +5,27 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 use yellowstone_grpc_client::{GeyserGrpcClient, ReconnectEvent};
 use yellowstone_grpc_proto::prelude::{
+    subscribe_request_filter_accounts_filter::Filter as AccountFilterOneof,
+    subscribe_request_filter_accounts_filter_memcmp::Data as MemcmpData,
     subscribe_update::UpdateOneof, CommitmentLevel, SlotStatus, SubscribeRequest,
-    SubscribeRequestFilterAccounts, SubscribeRequestFilterSlots,
+    SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
+    SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterSlots,
 };
 
 use super::{AccountUpdate, BankIdentity, FeedEvent};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YellowstoneMemcmpFilter {
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct YellowstoneScopedAccountFilter {
+    pub name: String,
+    pub owners: Vec<String>,
+    pub memcmp: Vec<YellowstoneMemcmpFilter>,
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct YellowstoneAccountFilter {
@@ -17,6 +33,9 @@ pub struct YellowstoneAccountFilter {
     pub accounts: Vec<String>,
     /// Base58 owner program addresses to subscribe to.
     pub owners: Vec<String>,
+    /// Additional immutable account scopes. Each scope becomes a separate
+    /// Yellowstone account filter; memcmp predicates inside one scope are ANDed.
+    pub scoped: Vec<YellowstoneScopedAccountFilter>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +72,30 @@ pub fn build_subscribe_request(config: &YellowstoneConfig) -> SubscribeRequest {
             ..Default::default()
         },
     );
+
+    for scope in &config.filter.scoped {
+        let filters = scope
+            .memcmp
+            .iter()
+            .map(|memcmp| SubscribeRequestFilterAccountsFilter {
+                filter: Some(AccountFilterOneof::Memcmp(
+                    SubscribeRequestFilterAccountsFilterMemcmp {
+                        offset: memcmp.offset,
+                        data: Some(MemcmpData::Bytes(memcmp.bytes.clone())),
+                    },
+                )),
+            })
+            .collect();
+
+        accounts.insert(
+            format!("{}:{}", config.filter_name, scope.name),
+            SubscribeRequestFilterAccounts {
+                owner: scope.owners.clone(),
+                filters,
+                ..Default::default()
+            },
+        );
+    }
 
     let mut slots = HashMap::new();
     slots.insert(

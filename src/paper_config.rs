@@ -136,6 +136,7 @@ pub struct SearchConfig {
 pub struct BuiltPaperConfig {
     pub pipeline: PaperPipeline,
     pub account_filters: Vec<String>,
+    pub dlmm_bin_pairs: Vec<[u8; 32]>,
     pub feed_channel_capacity: usize,
     pub opportunity_channel_capacity: usize,
     pub filter_name: String,
@@ -233,10 +234,16 @@ impl PaperConfig {
             self.runtime.max_hot_slot_skew,
         );
         let mut subscribed = BTreeSet::<String>::new();
+        let mut dlmm_bin_pairs = BTreeSet::<[u8; 32]>::new();
         let mut pool_topologies = Vec::with_capacity(pool_count);
 
         for (index, pool) in self.pools.into_iter().enumerate() {
             let (recipe, accounts, topology) = build_pool_recipe(pool)?;
+
+            if let PoolRecipe::MeteoraDlmm(recipe) = &recipe {
+                dlmm_bin_pairs.insert(recipe.lb_pair);
+            }
+
             let pool_id = reactor.register(recipe);
             debug_assert_eq!(pool_id as usize, index);
 
@@ -264,6 +271,7 @@ impl PaperConfig {
         Ok(BuiltPaperConfig {
             pipeline,
             account_filters: subscribed.into_iter().collect(),
+            dlmm_bin_pairs: dlmm_bin_pairs.into_iter().collect(),
             feed_channel_capacity: self.runtime.feed_channel_capacity,
             opportunity_channel_capacity: self.runtime.opportunity_channel_capacity,
             filter_name: self.runtime.filter_name,
