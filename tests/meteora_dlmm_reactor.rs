@@ -248,3 +248,68 @@ fn older_slot_complete_does_not_publish_over_newer_pending_bank() {
         ReactorOutput::PoolUpdated { state, .. } if state.version().slot == bank_b.slot
     ));
 }
+
+
+#[test]
+fn startup_snapshot_at_same_numeric_slot_is_not_a_wrong_bank() {
+    let mut reactor = setup_reactor();
+    let token_program = key(TOKEN_PROGRAM);
+    let dummy_owner = [77u8; 32];
+    let slot = 800u64;
+
+    for event in [
+        update(key(LB_PAIR), dummy_owner, slot, 1, None, bytes("pair")),
+        update(key(BIN_ARRAY_1), dummy_owner, slot, 2, None, bytes("bin1")),
+        update(key(BIN_ARRAY_2), dummy_owner, slot, 3, None, bytes("bin2")),
+        update(
+            key(TOKEN_X_MINT),
+            token_program,
+            slot,
+            4,
+            None,
+            bytes("mint_x"),
+        ),
+        update(
+            key(TOKEN_Y_MINT),
+            token_program,
+            slot,
+            5,
+            None,
+            bytes("mint_y"),
+        ),
+    ] {
+        let outputs = reactor.process(event);
+        if !outputs.is_empty() {
+            assert!(matches!(
+                outputs.as_slice(),
+                [ReactorOutput::PoolUpdated { .. }]
+            ));
+        }
+    }
+
+    let bank = BankIdentity {
+        generation: 1,
+        slot,
+        bank_id: 99,
+    };
+
+    assert_eq!(
+        reactor
+            .process(update(
+                key(BIN_ARRAY_1),
+                dummy_owner,
+                slot,
+                6,
+                Some(bank.bank_id),
+                bytes("bin1"),
+            ))
+            .len(),
+        1
+    );
+
+    let completed = reactor.process(FeedEvent::SlotComplete { bank });
+    assert!(matches!(
+        completed.as_slice(),
+        [ReactorOutput::PoolUpdated { .. }]
+    ));
+}

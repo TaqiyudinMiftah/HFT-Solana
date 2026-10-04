@@ -557,6 +557,7 @@ impl PaperStateReactor {
                     || (account.generation == fence.generation && account.slot > fence.slot);
                 let same_slot_wrong_bank = account.generation == fence.generation
                     && account.slot == fence.slot
+                    && account.bank_id.is_some()
                     && account.bank_id != Some(fence.bank_id);
 
                 if is_future || same_slot_wrong_bank {
