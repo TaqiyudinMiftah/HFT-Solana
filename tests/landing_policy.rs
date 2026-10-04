@@ -180,7 +180,7 @@ fn adaptive_relay_tip_scales_with_edge_and_respects_clamps() {
         &opportunity(10_000),
         candidate,
         LandingPolicyConfig {
-            minimum_net_if_landed: 0,
+            minimum_net_if_landed: i128::MIN,
             minimum_expected_value: i128::MIN,
             ..config()
         },
@@ -192,7 +192,7 @@ fn adaptive_relay_tip_scales_with_edge_and_respects_clamps() {
         &opportunity(80_000),
         candidate,
         LandingPolicyConfig {
-            minimum_net_if_landed: 0,
+            minimum_net_if_landed: i128::MIN,
             minimum_expected_value: i128::MIN,
             ..config()
         },
@@ -204,7 +204,7 @@ fn adaptive_relay_tip_scales_with_edge_and_respects_clamps() {
         &opportunity(200_000),
         candidate,
         LandingPolicyConfig {
-            minimum_net_if_landed: 0,
+            minimum_net_if_landed: i128::MIN,
             minimum_expected_value: i128::MIN,
             ..config()
         },
