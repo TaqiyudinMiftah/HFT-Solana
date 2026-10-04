@@ -6,15 +6,11 @@ use solana_client::{
     rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
     rpc_filter::{Memcmp, RpcFilterType},
 };
-use solana_sdk_v2::{
-    account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey,
-};
+use solana_sdk_v2::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
 use thiserror::Error;
 
 use crate::{
-    decode::meteora_dlmm::{
-        BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID,
-    },
+    decode::meteora_dlmm::{BIN_ARRAY_DISCRIMINATOR, BIN_ARRAY_LB_PAIR_OFFSET, DLMM_PROGRAM_ID},
     feed::{AccountUpdate, FeedEvent},
 };
 
@@ -48,10 +44,7 @@ pub enum BootstrapRpcError {
 pub async fn fetch_bootstrap_snapshot(
     config: &BootstrapRpcConfig,
 ) -> Result<BootstrapSnapshot, BootstrapRpcError> {
-    let rpc = RpcClient::new_with_commitment(
-        config.rpc_url.clone(),
-        CommitmentConfig::processed(),
-    );
+    let rpc = RpcClient::new_with_commitment(config.rpc_url.clone(), CommitmentConfig::processed());
 
     let explicit_pubkeys = config
         .explicit_accounts
@@ -81,9 +74,8 @@ pub async fn fetch_bootstrap_snapshot(
         max_context_slot = max_context_slot.max(response.context.slot);
 
         for (pubkey, account) in chunk.iter().zip(response.value.into_iter()) {
-            let account = account.ok_or_else(|| {
-                BootstrapRpcError::MissingAccount(pubkey.to_string())
-            })?;
+            let account =
+                account.ok_or_else(|| BootstrapRpcError::MissingAccount(pubkey.to_string()))?;
             updates.insert(
                 pubkey.to_bytes(),
                 startup_update(*pubkey, account, response.context.slot),
@@ -98,10 +90,7 @@ pub async fn fetch_bootstrap_snapshot(
 
     for lb_pair in &config.dlmm_bin_pairs {
         let filters = vec![
-            RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
-                0,
-                BIN_ARRAY_DISCRIMINATOR.to_vec(),
-            )),
+            RpcFilterType::Memcmp(Memcmp::new_raw_bytes(0, BIN_ARRAY_DISCRIMINATOR.to_vec())),
             RpcFilterType::Memcmp(Memcmp::new_raw_bytes(
                 BIN_ARRAY_LB_PAIR_OFFSET as usize,
                 lb_pair.to_vec(),
