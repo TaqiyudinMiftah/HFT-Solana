@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, str::FromStr};
 
+use serde_json::json;
 use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_client::{
     nonblocking::rpc_client::RpcClient,
@@ -9,7 +10,6 @@ use solana_client::{
     rpc_response::{OptionalContext, RpcKeyedAccount},
 };
 use solana_sdk_v2::{account::Account, commitment_config::CommitmentConfig, pubkey::Pubkey};
-use serde_json::json;
 use thiserror::Error;
 
 use crate::{
