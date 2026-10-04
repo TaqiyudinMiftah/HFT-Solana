@@ -4,6 +4,7 @@ pub mod bootstrap_rpc;
 pub mod decode;
 pub mod feed;
 pub mod graph;
+pub mod landing;
 pub mod opportunity;
 pub mod opportunity_engine;
 pub mod paper;

@@ -1,6 +1,9 @@
 #![cfg(feature = "yellowstone")]
 
-use hft_solana::paper_config::{PaperConfig, PaperConfigError};
+use hft_solana::{
+    landing::LandingProvider,
+    paper_config::{PaperConfig, PaperConfigError},
+};
 use serde_json::json;
 use solana_pubkey::Pubkey;
 
@@ -81,6 +84,7 @@ fn config_builds_pipeline_and_deduplicated_account_filter() {
     assert_eq!(built.account_filters.len(), 12);
     assert_eq!(built.feed_channel_capacity, 32);
     assert_eq!(built.opportunity_channel_capacity, 8);
+    assert!(built.landing.is_none());
 }
 
 #[test]
@@ -182,5 +186,89 @@ fn dlmm_config_rejects_zero_bin_array_take_count() {
     assert!(matches!(
         config.build(),
         Err(PaperConfigError::DlmmZeroBinArrayTakeCount)
+    ));
+}
+
+
+#[test]
+fn landing_policy_builds_provider_candidates() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["landing"] = json!({
+        "base_fee": 5000,
+        "minimum_net_if_landed": 10000,
+        "minimum_expected_value": 1000,
+        "max_tip_share_bps": 6000,
+        "candidates": [
+            {
+                "provider": "direct",
+                "success_probability_bps": 6000,
+                "priority_fee": 10000,
+                "relay_tip": 0,
+                "failure_fee": 15000
+            },
+            {
+                "provider": "jito",
+                "success_probability_bps": 9000,
+                "priority_fee": 5000,
+                "relay_tip": 20000,
+                "failure_fee": 10000
+            },
+            {
+                "provider": "helius_sender",
+                "success_probability_bps": 8500,
+                "priority_fee": 5000,
+                "relay_tip": 15000,
+                "failure_fee": 10000
+            }
+        ]
+    });
+
+    let built = PaperConfig::from_json_str(&value.to_string())
+        .unwrap()
+        .build()
+        .unwrap();
+    let landing = built.landing.unwrap();
+
+    assert_eq!(landing.config.base_fee, 5000);
+    assert_eq!(landing.config.max_tip_share_bps, 6000);
+    assert_eq!(landing.candidates.len(), 3);
+    assert_eq!(landing.candidates[0].provider, LandingProvider::Direct);
+    assert_eq!(landing.candidates[1].provider, LandingProvider::Jito);
+    assert_eq!(
+        landing.candidates[2].provider,
+        LandingProvider::HeliusSender
+    );
+}
+
+#[test]
+fn landing_policy_rejects_invalid_bps_inputs() {
+    let mut value: serde_json::Value = serde_json::from_str(&config_json()).unwrap();
+    value["landing"] = json!({
+        "base_fee": 5000,
+        "minimum_net_if_landed": 0,
+        "minimum_expected_value": 0,
+        "max_tip_share_bps": 10001,
+        "candidates": [{
+            "provider": "direct",
+            "success_probability_bps": 10000,
+            "priority_fee": 0,
+            "relay_tip": 0,
+            "failure_fee": 0
+        }]
+    });
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::LandingTipShareOutOfRange { .. })
+    ));
+
+    value["landing"]["max_tip_share_bps"] = json!(10000);
+    value["landing"]["candidates"][0]["success_probability_bps"] = json!(10001);
+
+    let config = PaperConfig::from_json_str(&value.to_string()).unwrap();
+    assert!(matches!(
+        config.build(),
+        Err(PaperConfigError::LandingProbabilityOutOfRange { .. })
     ));
 }

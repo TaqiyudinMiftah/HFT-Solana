@@ -7,6 +7,35 @@
     "opportunity_channel_capacity": 2048,
     "filter_name": "hft-paper"
   },
+  "landing": {
+    "base_fee": 5000,
+    "minimum_net_if_landed": 10000,
+    "minimum_expected_value": 1000,
+    "max_tip_share_bps": 6000,
+    "candidates": [
+      {
+        "provider": "direct",
+        "success_probability_bps": 6000,
+        "priority_fee": 10000,
+        "relay_tip": 0,
+        "failure_fee": 15000
+      },
+      {
+        "provider": "jito",
+        "success_probability_bps": 9000,
+        "priority_fee": 5000,
+        "relay_tip": 20000,
+        "failure_fee": 10000
+      },
+      {
+        "provider": "helius_sender",
+        "success_probability_bps": 8500,
+        "priority_fee": 5000,
+        "relay_tip": 15000,
+        "failure_fee": 10000
+      }
+    ]
+  },
   "tokens": [
     "REPLACE_WITH_QUOTE_MINT",
     "REPLACE_WITH_BASE_MINT"

@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{
     active_store::ActivePoolStore,
     graph::{Cycle, Edge, GraphIndex},
+    landing::{LandingCandidate, LandingPolicyConfig, LandingProvider},
     opportunity_engine::{CycleSearchConfig, OpportunityEngine},
     paper::PaperPipeline,
     reactor::{
@@ -20,6 +21,8 @@ use crate::{
 pub struct PaperConfig {
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    #[serde(default)]
+    pub landing: Option<LandingConfig>,
     pub tokens: Vec<String>,
     pub pools: Vec<PoolConfig>,
     pub cycles: Vec<CycleConfig>,
@@ -34,6 +37,48 @@ pub struct RuntimeConfig {
     pub feed_channel_capacity: usize,
     pub opportunity_channel_capacity: usize,
     pub filter_name: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct LandingConfig {
+    pub base_fee: u64,
+    pub minimum_net_if_landed: i128,
+    pub minimum_expected_value: i128,
+    pub max_tip_share_bps: u16,
+    pub candidates: Vec<LandingCandidateConfig>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub struct LandingCandidateConfig {
+    pub provider: LandingProviderConfig,
+    pub success_probability_bps: u16,
+    pub priority_fee: u64,
+    pub relay_tip: u64,
+    pub failure_fee: u64,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LandingProviderConfig {
+    Direct,
+    Jito,
+    HeliusSender,
+}
+
+impl From<LandingProviderConfig> for LandingProvider {
+    fn from(value: LandingProviderConfig) -> Self {
+        match value {
+            LandingProviderConfig::Direct => LandingProvider::Direct,
+            LandingProviderConfig::Jito => LandingProvider::Jito,
+            LandingProviderConfig::HeliusSender => LandingProvider::HeliusSender,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BuiltLandingPolicy {
+    pub config: LandingPolicyConfig,
+    pub candidates: Vec<LandingCandidate>,
 }
 
 impl Default for RuntimeConfig {
@@ -135,6 +180,7 @@ pub struct SearchConfig {
 
 pub struct BuiltPaperConfig {
     pub pipeline: PaperPipeline,
+    pub landing: Option<BuiltLandingPolicy>,
     pub account_filters: Vec<String>,
     pub dlmm_bin_pairs: Vec<[u8; 32]>,
     pub feed_channel_capacity: usize,
@@ -162,6 +208,12 @@ pub enum PaperConfigError {
     DlmmNoBinArrays,
     #[error("Meteora DLMM bin_array_take_count must be nonzero")]
     DlmmZeroBinArrayTakeCount,
+    #[error("landing policy must contain at least one candidate")]
+    LandingNoCandidates,
+    #[error("landing max_tip_share_bps must be <= 10000, got {value}")]
+    LandingTipShareOutOfRange { value: u16 },
+    #[error("landing candidate {candidate} success_probability_bps must be <= 10000, got {value}")]
+    LandingProbabilityOutOfRange { candidate: usize, value: u16 },
     #[error("cycle {cycle} references pool {pool}, but only {pool_count} pools exist")]
     PoolOutOfRange {
         cycle: usize,
@@ -204,6 +256,11 @@ impl PaperConfig {
         if self.cycles.is_empty() {
             return Err(PaperConfigError::NoCycles);
         }
+
+        let landing = self
+            .landing
+            .map(build_landing_policy)
+            .transpose()?;
 
         for (field, value) in [
             ("dirty_capacity", self.runtime.dirty_capacity),
@@ -270,6 +327,7 @@ impl PaperConfig {
 
         Ok(BuiltPaperConfig {
             pipeline,
+            landing,
             account_filters: subscribed.into_iter().collect(),
             dlmm_bin_pairs: dlmm_bin_pairs.into_iter().collect(),
             feed_channel_capacity: self.runtime.feed_channel_capacity,
@@ -289,6 +347,49 @@ fn parse_key(field: &'static str, value: String) -> Result<[u8; 32], PaperConfig
 struct PoolTopology {
     mint_a: [u8; 32],
     mint_b: [u8; 32],
+}
+
+fn build_landing_policy(config: LandingConfig) -> Result<BuiltLandingPolicy, PaperConfigError> {
+    if config.candidates.is_empty() {
+        return Err(PaperConfigError::LandingNoCandidates);
+    }
+    if config.max_tip_share_bps > 10_000 {
+        return Err(PaperConfigError::LandingTipShareOutOfRange {
+            value: config.max_tip_share_bps,
+        });
+    }
+
+    let candidates = config
+        .candidates
+        .into_iter()
+        .enumerate()
+        .map(|(index, candidate)| {
+            if candidate.success_probability_bps > 10_000 {
+                return Err(PaperConfigError::LandingProbabilityOutOfRange {
+                    candidate: index,
+                    value: candidate.success_probability_bps,
+                });
+            }
+
+            Ok(LandingCandidate {
+                provider: candidate.provider.into(),
+                success_probability_bps: candidate.success_probability_bps,
+                priority_fee: candidate.priority_fee,
+                relay_tip: candidate.relay_tip,
+                failure_fee: candidate.failure_fee,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(BuiltLandingPolicy {
+        config: LandingPolicyConfig {
+            base_fee: config.base_fee,
+            minimum_net_if_landed: config.minimum_net_if_landed,
+            minimum_expected_value: config.minimum_expected_value,
+            max_tip_share_bps: config.max_tip_share_bps,
+        },
+        candidates,
+    })
 }
 
 fn build_pool_recipe(

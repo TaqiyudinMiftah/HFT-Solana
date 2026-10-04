@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_account_feed_with_ready, YellowstoneAccountFilter, YellowstoneConfig,
             YellowstoneMemcmpFilter, YellowstoneScopedAccountFilter,
         },
+        landing::choose_landing_path,
         paper::async_loop::run_paper_event_loop_with_refresh,
         paper_config::PaperConfig,
     };
@@ -211,6 +212,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let landing_policy = built.landing.clone();
+
     let mut paper_task = tokio::spawn(run_paper_event_loop_with_refresh(
         feed_rx,
         opportunity_tx,
@@ -231,6 +234,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 opportunity.created_ns,
                 printed_ns.saturating_sub(opportunity.created_ns),
             );
+
+            if let Some(policy) = landing_policy.as_ref() {
+                match choose_landing_path(
+                    &opportunity,
+                    policy.candidates.iter().copied(),
+                    policy.config,
+                ) {
+                    Some(choice) => println!(
+                        "PAPER_LANDING cycle={} provider={:?} success_probability_bps={} priority_fee={} relay_tip={} net_if_landed={} expected_value={}",
+                        opportunity.cycle_id,
+                        choice.provider,
+                        choice.success_probability_bps,
+                        choice.priority_fee,
+                        choice.relay_tip,
+                        choice.net_if_landed,
+                        choice.expected_value,
+                    ),
+                    None => println!(
+                        "PAPER_LANDING_SKIP cycle={} effective_profit={}",
+                        opportunity.cycle_id,
+                        opportunity.expected_effective_profit,
+                    ),
+                }
+            }
         }
     });
 
