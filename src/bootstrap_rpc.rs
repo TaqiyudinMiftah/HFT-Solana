@@ -193,7 +193,7 @@ where
     }
 
     for event in buffered_events {
-        if live_event_is_not_older_than_bootstrap(&event, &startup_slots) {
+        if live_event_is_safe_after_bootstrap(&event, &startup_slots) {
             result.refresh_requests.extend(pipeline.seed_event(event));
             result.buffered_applied = result.buffered_applied.saturating_add(1);
         } else {
@@ -216,14 +216,23 @@ pub fn startup_account_slots(snapshot: &BootstrapSnapshot) -> BTreeMap<[u8; 32],
         .collect()
 }
 
-pub fn live_event_is_not_older_than_bootstrap(
+/// Decide whether a buffered live event is safe to apply after an RPC
+/// bootstrap snapshot.
+///
+/// For accounts present in the RPC snapshot, same-slot ordering is unknowable:
+/// JSON-RPC returns a context slot but not the account write_version. A
+/// buffered Yellowstone update from the same slot could therefore precede the
+/// snapshot and regress state. Fail closed by requiring a strictly newer slot.
+/// Accounts absent from the snapshot remain eligible because there is no RPC
+/// baseline to overwrite.
+pub fn live_event_is_safe_after_bootstrap(
     event: &FeedEvent,
     startup_slots: &BTreeMap<[u8; 32], u64>,
 ) -> bool {
     match event {
         FeedEvent::Account(update) => startup_slots
             .get(&update.pubkey)
-            .map_or(true, |startup_slot| update.slot >= *startup_slot),
+            .map_or(true, |startup_slot| update.slot > *startup_slot),
         FeedEvent::DiscardBanks { .. } | FeedEvent::SlotComplete { .. } => true,
     }
 }
@@ -246,7 +255,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn buffer_filter_rejects_only_strictly_older_account_updates() {
+    fn buffer_filter_rejects_ambiguous_same_slot_account_updates() {
         let snapshot = BootstrapSnapshot {
             events: vec![FeedEvent::Account(AccountUpdate {
                 pubkey: [1u8; 32],
@@ -275,10 +284,10 @@ mod tests {
             })
         };
 
-        assert!(!live_event_is_not_older_than_bootstrap(&live(99), &slots));
-        assert!(live_event_is_not_older_than_bootstrap(&live(100), &slots));
-        assert!(live_event_is_not_older_than_bootstrap(&live(101), &slots));
-        assert!(live_event_is_not_older_than_bootstrap(
+        assert!(!live_event_is_safe_after_bootstrap(&live(99), &slots));
+        assert!(!live_event_is_safe_after_bootstrap(&live(100), &slots));
+        assert!(live_event_is_safe_after_bootstrap(&live(101), &slots));
+        assert!(live_event_is_safe_after_bootstrap(
             &FeedEvent::SlotComplete {
                 bank: crate::feed::BankIdentity {
                     generation: 1,
@@ -346,8 +355,8 @@ mod tests {
 
         assert_eq!(result.explicit_accounts, 1);
         assert_eq!(result.context_slot, 100);
-        assert_eq!(result.buffered_stale, 1);
-        assert_eq!(result.buffered_applied, 2);
+        assert_eq!(result.buffered_stale, 2);
+        assert_eq!(result.buffered_applied, 1);
         assert!(result.initial.opportunities.is_empty());
         assert!(result.refresh_requests.is_empty());
 
@@ -356,9 +365,9 @@ mod tests {
         assert_eq!(current.write_version, 3);
         assert_eq!(current.data, vec![30]);
 
-        // One bootstrap event + two accepted live events. The stale slot-99
-        // update never reaches the reactor.
-        assert_eq!(pipeline.stats().feed_events, 3);
+        // One bootstrap event + one strictly newer live event. Slot 99 is
+        // stale and slot 100 is deliberately rejected as ordering-ambiguous.
+        assert_eq!(pipeline.stats().feed_events, 2);
         assert_eq!(pipeline.stats().pools_evaluated, 0);
     }
 
