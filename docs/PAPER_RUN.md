@@ -46,6 +46,18 @@ unless calibrated from labeled outcomes. No transaction is submitted.
 When landing is configured, all cycles must start in WSOL so lamport costs and
 raw profit use the same units; otherwise remove `landing` for quote observations.
 
+To expand the pool universe, inspect rejection reasons, and quote additional
+sizes without changing the search filter, follow [PAPER_DISCOVERY.md](PAPER_DISCOVERY.md).
+For example:
+
+```bash
+cargo run --release --locked --features yellowstone --example paper_bootstrap -- config/paper.expanded.local.json --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report target/local-setup/new-paper-report.json
+```
+
+`PAPER_SEARCH_STATS` counts actual engine decisions. Additional-size diagnostics
+remain separate from emitted opportunities; a positive diagnostic does not
+bypass the probe filter. Output/report paths must be new files.
+
 ## Diagnose Yellowstone access
 
 After loading the provider environment, check the subscription method with a

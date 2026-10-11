@@ -75,3 +75,8 @@ required-features = ["yellowstone"]
 name = "yellowstone_probe"
 path = "examples/yellowstone_probe.rs"
 required-features = ["yellowstone"]
+
+[[example]]
+name = "paper_discover"
+path = "examples/paper_discover.rs"
+required-features = ["yellowstone"]

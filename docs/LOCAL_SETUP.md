@@ -719,3 +719,87 @@ gh pr create --draft --base main --head dev/local-paper-provider --title 'Suppor
 File config lokal dan log tidak termasuk daftar staging. Status publikasi aktual
 dan CI dilaporkan setelah commit/push diverifikasi. Tidak ada commit atau push
 langsung ke `main` yang diperlukan untuk menjalankan lokal.
+
+## Pengamatan pool yang diperluas — 11 Oktober 2026
+
+Discovery dari indeks Raydium/Meteora dan petunjuk DEX Screener menghasilkan
+29 kandidat pada delapan pasangan. Label indeks tidak dipakai sebagai bukti
+program pool: validator Rust menolak owner/layout yang tidak didukung, membaca
+mint dan vault dari state on-chain, memeriksa activation/status, kemudian
+memastikan seluruh dependency dan quote snapshots siap.
+
+Config baru `config/paper.expanded.local.json` berhasil dibuat tanpa mengubah
+config dua pool sebelumnya. Hasil validasi pada context slot `455545886`:
+
+- 10 pool: 1 PumpSwap, 3 Raydium CPMM, dan 6 Meteora DAMM v2.
+- 5 mint legacy SPL initialized, 4 pasangan WSOL, 16 cycle dua-leg berarah.
+- 41 dependency accounts, masih dalam satu `getMultipleAccounts` response.
+- Decimals mint diverifikasi ulang pada slot `455548421`: WSOL 9, mint
+  `6NwarBvDkXhByqVp2Qkq5i9XbtA2B3Bwe8SWGu9vpump` 6,
+  `A3vBwL3Pd6nkBqVo87D6TLWYG4ekWuDeqCoLFeyvRMcb` 5,
+  `8Ne5fhU1B7RuBB6v3GhJ9ixuLUJYcRfP9MCEhCuNtsss` 6, dan
+  `HgBRWfYxEfvPhtqkaeymCQtHCrKE46qQ43pKe8HCpump` 6.
+
+Settings search dan landing tetap diwarisi dari config lokal sebelumnya:
+probe 100.000, seed 1.000.000, max size 10.000.000, minimum effective profit
+1.000 lamport. Seluruh cycle kembali ke WSOL; nominal token lain tidak dijumlahkan
+langsung ke biaya SOL.
+
+Perintah observasi yang benar-benar dijalankan:
+
+```powershell
+. .\scripts\Import-PaperProvider.ps1
+.\target\release\examples\paper_bootstrap.exe config\paper.expanded.local.json --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report target\local-setup\paper-expanded-20261011-130611.json
+```
+
+Exit 0, durasi proses 613,42 detik. Context slot naik dari `455546047` ke
+`455548858`. Semua 120 snapshot diterima; tidak ada snapshot skip, quote error,
+atau pool yang gagal quote-ready. Search mengevaluasi 1.920 state vector cycle;
+seluruhnya berhenti pada probe nonpositif. Counter duplicate 1.920 adalah
+dedupe saat cycle yang sama dikunjungi melalui kedua pool di dalam satu
+pipeline; bukan kegagalan penerimaan snapshot RPC.
+
+Quote probe dan dua ukuran diagnosis menghasilkan 5.760 pembacaan, seluruhnya
+negatif. Tidak ada kasus probe negatif tetapi grid ukuran lebih besar positif.
+Hasil terbaik dari seluruh cycle/waktu untuk masing-masing input:
+
+| Raw input WSOL | SOL | Effective profit terbaik sebelum biaya eksekusi |
+| ---: | ---: | ---: |
+| 100000 | 0,0001 | -632 lamport |
+| 1000000 | 0,001 | -6323 lamport |
+| 10000000 | 0,01 | -65421 lamport |
+
+Opportunity lolos: **0**; landing selected/rejected: **0/0** karena belum ada
+opportunity yang masuk policy. Tidak ada transaksi dikirim. Dua belas sampel
+awal (~57 detik) juga menghasilkan nol opportunity.
+
+Dari 119 interval setelah baseline, 106 memiliki account payload yang sama
+dan 13 berubah. Slot yang bertambah tidak berarti pool mengalami swap.
+Pengamatan ini mendukung prioritas berikutnya: ukur aktivitas pool yang nyata
+dan pilih pasangan dengan beberapa pool yang aktif serta fee yang dapat
+ditutup spread. Menambah jumlah pool saja belum menghasilkan edge positif.
+Grid terbatas tidak membuktikan ketiadaan semua peluang di ukuran/waktu lain.
+
+Log dan report tersanitasi disimpan lokal di
+`target/local-setup/paper-expanded-20261011-130611.log` dan `.json`.
+Langkah discovery lintas OS serta arti seluruh counter tersedia di
+[PAPER_DISCOVERY.md](PAPER_DISCOVERY.md). Filter profit tidak dilonggarkan.
+Yellowstone, recovery/reconnect provider, dan live slot fences tetap belum
+terverifikasi karena akses gRPC belum tersedia. Tidak ada upgrade paket.
+
+Verifikasi perubahan ini: `cargo fmt --all -- --check` lulus;
+`cargo test --locked --all-targets --all-features` lulus **118 test, 0 gagal,
+tanpa warning** pada native Windows; tiga unittest discovery Python juga lulus.
+Test profile default selesai kompilasi dalam 1 menit 32 detik setelah resource
+PC membaik.
+
+Percobaan awal compiler sempat gagal alokasi memori ketika drive C: hanya
+tersisa ~200 MB dan Windows commit memory hampir penuh. Artifact yang
+terganggu menghasilkan error E0463/E0462 pada percobaan berikutnya, termasuk
+percobaan release dan codegen-unit khusus. Setelah pengguna menutup aplikasi
+berat, tersedia ~11 GB RAM dan ~4,8 GB disk. Package-scoped
+`cargo clean -p hft-solana --profile dev` dan pengulangan command test normal
+dengan `CARGO_BUILD_JOBS=1` berhasil. Tidak diperlukan perubahan math/dependency
+untuk menyelesaikan kegagalan resource tersebut. Pembersihan direktori penuh
+melalui shell ditolak pemeriksaan otomatis; Cargo hanya membersihkan artifact
+paket aplikasi. Config, credential, dependency builds, dan source tetap tersimpan.
