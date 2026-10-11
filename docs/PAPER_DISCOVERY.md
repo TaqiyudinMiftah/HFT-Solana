@@ -44,6 +44,51 @@ from the supplied template; discovery does not lower profitability thresholds.
 Config and report outputs must be new paths. Existing files are never overwritten.
 New local configs match `/config/paper.*.local.json` in `.gitignore`.
 
+## Rank by current account activity
+
+Enable `--activity-samples 13 --activity-interval-secs 5` to observe native,
+connected candidates for approximately one minute before pool selection. Index
+volume alone does not show whether a pool is active now. Each pool's own account
+and both vaults are watched; a vault change counts even when the pool account
+does not change. Advancing context slots, write versions, and repeated payloads
+do not count as activity. The first observation is a baseline. Duplicate/older
+contexts are skipped without replacing it.
+
+The sampler issues sequential, bounded `getMultipleAccounts` requests, each
+containing at most 33 complete pool/vault triples (99 unique addresses). This
+follows the [Solana RPC account limit](https://solana.com/docs/rpc/http/getmultipleaccounts).
+The maximum is 100 candidates and 61 samples: at most 244 sampling requests,
+plus derivation/final validation. Sampling intervals are 1..30 seconds, with
+300 ms between batches. No subscriptions, retries, or transaction methods are
+introduced. A missing account, malformed context, timeout, or provider failure
+stops discovery with provider details omitted.
+
+Pools are ranked by the fraction of accepted intervals with an owner/payload
+change, then index TVL and 24-hour volume. Groups favor the weaker of their top
+two observed activity rates, then the stronger rate, then historical volume.
+This heuristic favors two active sides without excluding a static counterpart.
+With sampling enabled, a pair needs at least one pool with an observed change;
+entirely quiet pairs are excluded. If none qualify, no config is produced.
+Zero-change pools can still be counterparts in an observed active pair;
+`selected_with_changes` explicitly reports how many selected pools changed.
+Pools with no accepted comparison are excluded. Without activity flags, the
+previous index-volume order remains unchanged.
+
+Use `--activity-report <new-path.json>` to preserve every sampled candidate's
+counts, context range, selection, and subsequent validation rejections. Sampling
+that finds no qualified active pair writes a report with
+`status=no_qualified_active_pair`, returns an error, and leaves no config.
+Keep that report as evidence; refresh candidates or use a longer bounded
+window (for example 37 samples at five seconds, approximately three minutes).
+Do not change profit thresholds to disguise a quiet observation. Sampling
+is only a ranking hint: payload changes are not swap counts and may include
+liquidity/administrative changes. A short quiet observation cannot prove a pool
+will remain inactive. Different batches are never merged into quote state.
+Final mint/dependency/readiness validation still uses one complete RPC context.
+DEX fees remain part of the existing exact quotes, rather than being replaced
+with a generic fee estimate for ranking. Search and landing thresholds remain
+inherited from the template.
+
 ## Native Windows reproduction
 
 First use the Rust/MSVC/OpenSSL setup in [LOCAL_SETUP.md](LOCAL_SETUP.md).
@@ -64,12 +109,13 @@ $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
 New-Item -ItemType Directory -Path 'target\local-setup' -Force | Out-Null
 $candidatesPath = "target\local-setup\paper-candidates-$runId.json"
 $configPath = "config\paper.expanded-$runId.local.json"
+$activityPath = "target\local-setup\paper-activity-$runId.json"
 $reportPath = "target\local-setup\paper-report-$runId.json"
 
 python .\scripts\discover-paper-candidates.py $candidatesPath
 if ($LASTEXITCODE -ne 0) { throw 'Public pool discovery failed' }
 . .\scripts\Import-PaperProvider.ps1
-.\target\release\examples\paper_discover.exe $candidatesPath config\paper.local.json $configPath 15
+.\target\release\examples\paper_discover.exe $candidatesPath config\paper.local.json $configPath 15 --activity-samples 13 --activity-interval-secs 5 --activity-report $activityPath
 if ($LASTEXITCODE -ne 0) { throw 'On-chain pool validation failed' }
 .\target\release\examples\paper_bootstrap.exe $configPath --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report $reportPath
 ```
@@ -93,9 +139,10 @@ run_id=$(date +%Y%m%d-%H%M%S)
 mkdir -p target/local-setup
 candidates_path="target/local-setup/paper-candidates-$run_id.json"
 config_path="config/paper.expanded-$run_id.local.json"
+activity_path="target/local-setup/paper-activity-$run_id.json"
 report_path="target/local-setup/paper-report-$run_id.json"
 python3 scripts/discover-paper-candidates.py "$candidates_path"
-target/release/examples/paper_discover "$candidates_path" config/paper.local.json "$config_path" 15
+target/release/examples/paper_discover "$candidates_path" config/paper.local.json "$config_path" 15 --activity-samples 13 --activity-interval-secs 5 --activity-report "$activity_path"
 target/release/examples/paper_bootstrap "$config_path" --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report "$report_path"
 ```
 
@@ -142,6 +189,13 @@ profit ranges per cycle/input. Report `curves` describe DEX-fee-aware effective
 profit before execution fees; DEX fees are already reflected in output.
 Landing costs are applied separately. Landing probabilities remain demonstration
 parameters without a labeled calibration dataset.
+
+`PAPER_ACTIVITY_SAMPLE` reports changed pool/vault triples per request. The
+discovery report's `compared_intervals` excludes the baseline and duplicate/old
+contexts. `PAPER_ACTIVITY_RANKED` distinguishes sampled pools from selected pools
+and selected pools with actual changes; it is not an opportunity count. Compare
+the later paper report's changed-account intervals and fee-aware curves to the
+previous run, while allowing for different market times and pool universes.
 
 ## Limits and troubleshooting
 

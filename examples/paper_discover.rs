@@ -1,5 +1,17 @@
 //! Validate public index candidates using RPC and the existing state decoders.
-use std::{collections::BTreeMap, env, error::Error, fs, io, str::FromStr, time::Duration};
+use std::{
+    collections::BTreeMap,
+    env,
+    error::Error,
+    fs, io,
+    path::Path,
+    str::FromStr,
+    time::{Duration, Instant},
+};
+
+#[path = "support/discovery_activity.rs"]
+mod activity;
+use activity::{ActivityStats, ActivityTracker};
 
 use hft_solana::{
     bootstrap_rpc::{
@@ -41,6 +53,65 @@ struct DerivedPool {
     candidate: Candidate,
     config: Value,
     mints: [String; 2],
+    activity: ActivityStats,
+}
+
+struct Options {
+    candidates: String,
+    template: String,
+    output: String,
+    maximum: usize,
+    activity_samples: usize,
+    activity_interval_secs: u64,
+    activity_report: Option<String>,
+}
+
+fn options(mut args: impl Iterator<Item = String>) -> io::Result<Options> {
+    let usage = || {
+        io::Error::other("usage: paper_discover <candidates.json> <template.json> <new-config.json> [max-pools=15] [--activity-samples 3..61] [--activity-interval-secs 1..30] [--activity-report new-report.json]")
+    };
+    let mut result = Options {
+        candidates: args.next().ok_or_else(usage)?,
+        template: args.next().ok_or_else(usage)?,
+        output: args.next().ok_or_else(usage)?,
+        maximum: 15,
+        activity_samples: 0,
+        activity_interval_secs: 5,
+        activity_report: None,
+    };
+    let mut remaining = args.peekable();
+    if remaining.peek().is_some_and(|arg| !arg.starts_with("--")) {
+        result.maximum = remaining.next().unwrap().parse().map_err(|_| usage())?;
+    }
+    while let Some(flag) = remaining.next() {
+        let value = remaining.next().ok_or_else(usage)?;
+        match flag.as_str() {
+            "--activity-samples" => result.activity_samples = value.parse().map_err(|_| usage())?,
+            "--activity-interval-secs" => {
+                result.activity_interval_secs = value.parse().map_err(|_| usage())?
+            }
+            "--activity-report" => result.activity_report = Some(value),
+            _ => return Err(usage()),
+        }
+    }
+    if !(2..=20).contains(&result.maximum)
+        || !(1..=30).contains(&result.activity_interval_secs)
+        || (result.activity_samples != 0 && !(3..=61).contains(&result.activity_samples))
+        || (result.activity_report.is_some() && result.activity_samples == 0)
+    {
+        return Err(usage());
+    }
+    for path in std::iter::once(&result.output).chain(result.activity_report.iter()) {
+        if Path::new(path).exists() {
+            return Err(io::Error::other(
+                "output exists; choose new config/report paths",
+            ));
+        }
+    }
+    if result.activity_report.as_ref() == Some(&result.output) {
+        return Err(io::Error::other("config and report paths must differ"));
+    }
+    Ok(result)
 }
 
 fn key(bytes: [u8; 32]) -> String {
@@ -127,7 +198,16 @@ fn derive(
         candidate,
         config,
         mints,
+        activity: ActivityStats::default(),
     })
+}
+
+fn compare_pool(a: &DerivedPool, b: &DerivedPool) -> std::cmp::Ordering {
+    b.activity
+        .compare_rate(&a.activity)
+        .then_with(|| b.candidate.tvl.total_cmp(&a.candidate.tvl))
+        .then_with(|| b.candidate.volume_24h.total_cmp(&a.candidate.volume_24h))
+        .then_with(|| a.candidate.address.cmp(&b.candidate.address))
 }
 
 fn select(pools: &[DerivedPool], maximum: usize) -> Vec<DerivedPool> {
@@ -139,30 +219,142 @@ fn select(pools: &[DerivedPool], maximum: usize) -> Vec<DerivedPool> {
     }
     let mut groups: Vec<_> = groups
         .into_values()
-        .filter(|group| group.len() >= 2)
+        .filter(|group| {
+            group.len() >= 2
+                && (!group
+                    .iter()
+                    .any(|p| p.activity.first_context_slot.is_some())
+                    || group.iter().any(|p| p.activity.changed_intervals > 0))
+        })
         .collect();
+    for group in &mut groups {
+        // Without activity sampling retain the original index-volume order.
+        group.sort_by(|a, b| {
+            if a.activity.first_context_slot.is_some() || b.activity.first_context_slot.is_some() {
+                compare_pool(a, b)
+            } else {
+                b.candidate
+                    .volume_24h
+                    .total_cmp(&a.candidate.volume_24h)
+                    .then_with(|| b.candidate.tvl.total_cmp(&a.candidate.tvl))
+                    .then_with(|| a.candidate.address.cmp(&b.candidate.address))
+            }
+        });
+    }
     groups.sort_by(|a, b| {
         let score =
             |group: &[DerivedPool]| group.iter().map(|p| p.candidate.volume_24h).sum::<f64>();
-        score(b)
-            .total_cmp(&score(a))
-            .then_with(|| a[0].candidate.address.cmp(&b[0].candidate.address))
+        // Favor two observed active pools, then the stronger side of the pair.
+        b[1].activity
+            .compare_rate(&a[1].activity)
+            .then_with(|| b[0].activity.compare_rate(&a[0].activity))
+            .then_with(|| {
+                score(b)
+                    .total_cmp(&score(a))
+                    .then_with(|| a[0].candidate.address.cmp(&b[0].candidate.address))
+            })
     });
     let mut result = Vec::new();
-    for mut group in groups {
-        group.sort_by(|a, b| {
-            b.candidate
-                .volume_24h
-                .total_cmp(&a.candidate.volume_24h)
-                .then_with(|| b.candidate.tvl.total_cmp(&a.candidate.tvl))
-                .then_with(|| a.candidate.address.cmp(&b.candidate.address))
-        });
+    for group in groups {
         let take = group.len().min(4).min(maximum.saturating_sub(result.len()));
         if take >= 2 {
             result.extend(group.into_iter().take(take));
         }
     }
     result
+}
+
+fn watched_accounts(pool: &DerivedPool) -> io::Result<[String; 3]> {
+    let fields = match pool.candidate.kind.as_str() {
+        "raydium_cpmm" => ["vault_0", "vault_1"],
+        "meteora_damm" => ["vault_a", "vault_b"],
+        "pump" => ["base_vault", "quote_vault"],
+        _ => return Err(io::Error::other("unsupported activity pool")),
+    };
+    let vault = |field| {
+        pool.config[field]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| io::Error::other("missing activity vault address"))
+    };
+    Ok([
+        pool.candidate.address.clone(),
+        vault(fields[0])?,
+        vault(fields[1])?,
+    ])
+}
+
+async fn measure_activity(
+    pools: &mut [DerivedPool],
+    options: &Options,
+) -> Result<Value, Box<dyn Error>> {
+    let started = Instant::now();
+    let watches = pools
+        .iter()
+        .map(watched_accounts)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut trackers: Vec<_> = pools.iter().map(|_| ActivityTracker::default()).collect();
+    let mut requests = 0;
+    // At most 33 complete pool+two-vault triples per request. Contexts from
+    // different batches are independent ranking observations, never quote input.
+    for sample in 0..options.activity_samples {
+        for (batch, watches) in watches.chunks(33).enumerate() {
+            let mut addresses: Vec<_> = watches.iter().flatten().cloned().collect();
+            addresses.sort();
+            addresses.dedup();
+            let snapshot = fetch(addresses).await?;
+            requests += 1;
+            let accounts: BTreeMap<_, _> = snapshot
+                .events
+                .into_iter()
+                .filter_map(|event| match event {
+                    FeedEvent::Account(update) => Some((key(update.pubkey), update)),
+                    _ => None,
+                })
+                .collect();
+            let mut changed = 0;
+            for (index, watch) in watches.iter().enumerate() {
+                let values = watch
+                    .iter()
+                    .map(|address| {
+                        accounts
+                            .get(address)
+                            .ok_or_else(|| io::Error::other("missing activity account"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let tracker = &mut trackers[batch * 33 + index];
+                let before = tracker.stats.changed_intervals;
+                tracker.observe(snapshot.max_context_slot, &values)?;
+                changed += usize::from(tracker.stats.changed_intervals > before);
+            }
+            println!("PAPER_ACTIVITY_SAMPLE sample={} batch={} pools={} context_slot={} changed_pools={changed}", sample + 1, batch + 1, watches.len(), snapshot.max_context_slot);
+            if batch + 1 < pools.len().div_ceil(33) {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+        }
+        if sample + 1 < options.activity_samples {
+            tokio::time::sleep(Duration::from_secs(options.activity_interval_secs)).await;
+        }
+    }
+    for (pool, tracker) in pools.iter_mut().zip(trackers) {
+        pool.activity = tracker.stats;
+    }
+    let rows: Vec<_> = pools
+        .iter()
+        .map(|pool| {
+            json!({
+                "address":pool.candidate.address, "kind":pool.candidate.kind, "mints":pool.mints,
+                "index_tvl":pool.candidate.tvl, "index_volume24h":pool.candidate.volume_24h,
+                "activity":pool.activity,
+            })
+        })
+        .collect();
+    Ok(json!({
+        "mode":"rpc_payload_change_ranking", "samples":options.activity_samples,
+        "interval_seconds":options.activity_interval_secs, "rpc_requests":requests,
+        "elapsed_seconds":started.elapsed().as_secs_f64(), "pools":rows,
+        "note":"Payload changes are activity hints, not trade counts or profitable quotes. Batches are not a coherent quote snapshot.",
+    }))
 }
 
 fn make_config(template: &Value, pools: &[DerivedPool]) -> Result<Value, Box<dyn Error>> {
@@ -237,20 +429,19 @@ async fn fetch(addresses: Vec<String>) -> Result<BootstrapSnapshot, Box<dyn Erro
     Ok(snapshot)
 }
 
+fn write_json_new(path: &str, value: &Value) -> io::Result<()> {
+    use std::io::Write;
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    writeln!(output, "{}", serde_json::to_string_pretty(value)?)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<_> = env::args().skip(1).collect();
-    if !(3..=4).contains(&args.len()) {
-        return Err(io::Error::other("usage: paper_discover <candidates.json> <template.json> <new-config.json> [max-pools=15]").into());
-    }
-    if std::path::Path::new(&args[2]).exists() {
-        return Err(io::Error::other("output exists; choose a new config path").into());
-    }
-    let maximum: usize = args.get(3).map(String::as_str).unwrap_or("15").parse()?;
-    if !(2..=20).contains(&maximum) {
-        return Err(io::Error::other("max-pools must be 2..20").into());
-    }
-    let candidates: Candidates = serde_json::from_str(&fs::read_to_string(&args[0])?)?;
+    let options = options(env::args().skip(1))?;
+    let candidates: Candidates = serde_json::from_str(&fs::read_to_string(&options.candidates)?)?;
     if candidates.candidates.is_empty() || candidates.candidates.len() > 100 {
         return Err(io::Error::other("expected 1..100 candidates").into());
     }
@@ -294,9 +485,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     derived.sort_by(|a, b| a.candidate.address.cmp(&b.candidate.address));
     derived.dedup_by(|a, b| a.candidate.address == b.candidate.address);
-    let template: Value = serde_json::from_str(&fs::read_to_string(&args[1])?)?;
+    let template: Value = serde_json::from_str(&fs::read_to_string(&options.template)?)?;
+    let mut activity_report = if options.activity_samples > 0 {
+        // Orphans cannot form cycles, so spend no sampling requests on them.
+        let mut counts = BTreeMap::new();
+        for pool in &derived {
+            let mut pair = pool.mints.clone();
+            pair.sort();
+            *counts.entry(pair).or_insert(0usize) += 1;
+        }
+        derived.retain(|pool| {
+            let mut pair = pool.mints.clone();
+            pair.sort();
+            counts[&pair] >= 2
+        });
+        if derived.len() < 2 {
+            return Err(io::Error::other(
+                "not enough native connected candidates for activity sampling",
+            )
+            .into());
+        }
+        let report = measure_activity(&mut derived, &options).await?;
+        derived.retain(|pool| pool.activity.compared_intervals > 0);
+        Some(report)
+    } else {
+        None
+    };
+    let mut rejected = Vec::new();
     loop {
-        let pools = select(&derived, maximum);
+        let pools = select(&derived, options.maximum);
+        if pools.len() < 2 {
+            if let Some(report) = &mut activity_report {
+                report["status"] = json!("no_qualified_active_pair");
+                report["selected_pools"] = json!([]);
+                report["rejected_after_sampling"] = json!(rejected);
+                if let Some(path) = &options.activity_report {
+                    write_json_new(path, report)?;
+                }
+                return Err(io::Error::other("no connected pair with observed activity passed discovery; refresh candidates or extend the bounded sampling window; no config written").into());
+            }
+        }
         let config = make_config(&template, &pools)?;
         let mut built = PaperConfig::from_json_str(&config.to_string())?.build()?;
         let snapshot = fetch(built.account_filters.clone()).await?;
@@ -335,15 +563,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
         invalid.sort();
         invalid.dedup();
         if invalid.is_empty() {
-            let mut output = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&args[2])?;
-            use std::io::Write;
-            writeln!(output, "{}", serde_json::to_string_pretty(&config)?)?;
+            write_json_new(&options.output, &config)?;
             println!("PAPER_DISCOVERY_VALIDATED pools={} tokens={} cycles={} accounts={} context_slot={}", pools.len(), config["tokens"].as_array().unwrap().len(), config["cycles"].as_array().unwrap().len(), result.explicit_accounts, result.context_slot);
             for (index, pool) in pools.iter().enumerate() {
-                println!("PAPER_DISCOVERY_POOL id={index} kind={} address={} index_tvl={} index_volume24h={}", pool.candidate.kind, pool.candidate.address, pool.candidate.tvl, pool.candidate.volume_24h);
+                println!("PAPER_DISCOVERY_POOL id={index} kind={} address={} index_tvl={} index_volume24h={} activity_changes={} activity_intervals={}", pool.candidate.kind, pool.candidate.address, pool.candidate.tvl, pool.candidate.volume_24h, pool.activity.changed_intervals, pool.activity.compared_intervals);
+            }
+            if let Some(report) = &mut activity_report {
+                report["status"] = json!("validated");
+                report["selected_pools"] = json!(pools
+                    .iter()
+                    .map(|p| &p.candidate.address)
+                    .collect::<Vec<_>>());
+                report["rejected_after_sampling"] = json!(rejected);
+                report["validation_context_slot"] = json!(result.context_slot);
+                if let Some(path) = &options.activity_report {
+                    write_json_new(path, report)?;
+                }
+                println!("PAPER_ACTIVITY_RANKED sampled_pools={} selected_pools={} selected_with_changes={}", report["pools"].as_array().unwrap().len(), pools.len(), pools.iter().filter(|p| p.activity.changed_intervals > 0).count());
             }
             return Ok(());
         }
@@ -352,6 +588,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 "PAPER_DISCOVERY_REJECT pool={address} reason=mint_safety_or_snapshot_not_ready"
             );
         }
+        rejected.extend(invalid.iter().cloned());
         derived.retain(|pool| !invalid.contains(&pool.candidate.address));
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
@@ -371,6 +608,7 @@ mod tests {
             },
             config: json!({"pool":address}),
             mints: mints.map(str::to_owned),
+            activity: ActivityStats::default(),
         }
     }
     #[test]
@@ -427,5 +665,108 @@ mod tests {
         assert!(cycles
             .iter()
             .all(|cycle| cycle["edges"][0]["pool"] != cycle["edges"][1]["pool"]));
+    }
+
+    #[test]
+    fn recent_activity_beats_large_historical_volume_and_prefers_two_active_sides() {
+        let mut pools = vec![
+            pool("balanced-a", [WSOL, "balanced"]),
+            pool("balanced-b", ["balanced", WSOL]),
+            pool("one-fast", [WSOL, "one-side"]),
+            pool("one-static", [WSOL, "one-side"]),
+            pool("old-a", [WSOL, "historical"]),
+            pool("old-b", [WSOL, "historical"]),
+        ];
+        for (index, pool) in pools.iter_mut().enumerate() {
+            pool.activity = ActivityStats {
+                changed_intervals: match index {
+                    0 | 1 => 3,
+                    2 => 12,
+                    _ => 0,
+                },
+                compared_intervals: 12,
+                first_context_slot: Some(10),
+                ..Default::default()
+            };
+            if index >= 4 {
+                pool.candidate.volume_24h = 1_000_000.0;
+            }
+        }
+        let selected = select(&pools, 2);
+        assert_eq!(
+            selected
+                .iter()
+                .map(|p| p.candidate.address.as_str())
+                .collect::<Vec<_>>(),
+            vec!["balanced-a", "balanced-b"]
+        );
+    }
+
+    #[test]
+    fn disabled_sampling_retains_index_order() {
+        let mut pools = vec![
+            pool("low-a", [WSOL, "low"]),
+            pool("low-b", [WSOL, "low"]),
+            pool("high-a", [WSOL, "high"]),
+            pool("high-b", [WSOL, "high"]),
+        ];
+        for pool in &mut pools[2..] {
+            pool.candidate.volume_24h = 1000.0;
+        }
+        assert!(select(&pools, 2)
+            .iter()
+            .all(|p| p.mints.contains(&"high".to_owned())));
+    }
+
+    #[test]
+    fn sampling_excludes_quiet_pairs_but_keeps_a_static_counterpart_to_an_active_pool() {
+        let mut pools = vec![
+            pool("active", [WSOL, "a"]),
+            pool("counterpart", [WSOL, "a"]),
+            pool("quiet-a", [WSOL, "b"]),
+            pool("quiet-b", [WSOL, "b"]),
+        ];
+        for pool in &mut pools {
+            pool.activity = ActivityStats {
+                compared_intervals: 12,
+                first_context_slot: Some(10),
+                ..Default::default()
+            };
+        }
+        pools[0].activity.changed_intervals = 1;
+        let selected = select(&pools, 15);
+        assert_eq!(selected.len(), 2);
+        assert!(selected.iter().all(|p| p.mints.contains(&"a".to_owned())));
+        pools[0].activity.changed_intervals = 0;
+        assert!(select(&pools, 15).is_empty());
+    }
+
+    #[test]
+    fn cli_bounds_activity_requests_and_requires_enabled_sampling_for_reports() {
+        let parse = |tail: &[&str]| {
+            options(
+                ["candidates", "template", "new-output"]
+                    .into_iter()
+                    .chain(tail.iter().copied())
+                    .map(str::to_owned),
+            )
+        };
+        assert_eq!(parse(&[]).unwrap().maximum, 15);
+        assert_eq!(
+            parse(&["20", "--activity-samples", "13"])
+                .unwrap()
+                .activity_samples,
+            13
+        );
+        for tail in [
+            vec!["--activity-samples", "2"],
+            vec!["--activity-samples", "62"],
+            vec!["--activity-interval-secs", "0"],
+            vec!["--activity-interval-secs", "31"],
+            vec!["--activity-report", "new-report"],
+            vec!["--unknown", "3"],
+        ] {
+            assert!(parse(&tail).is_err());
+        }
     }
 }
