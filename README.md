@@ -1,53 +1,143 @@
 # HFT-Solana
 
-Research and implementation workspace for a low-latency Solana arbitrage searcher inspired by on-chain analysis of high-frequency wallets.
+Low-latency Solana arbitrage research and paper-trading engine derived from
+on-chain reverse engineering and official DEX math.
 
 ## Current scope
 
-V1 is intentionally **paper-trading first**:
+The engine is intentionally **paper-mode only**. It does not contain a live
+transaction signer/sender.
 
-- Local pool-state cache
-- Precomputed 2-3 leg cycles
-- Integer-only CPMM quoting
-- Opportunity sizing
-- Cashback-aware effective PnL
-- Landing-policy model (Direct / Jito / Helius Sender)
-- No mainnet transaction submission until quote parity tests pass
+Implemented paper-path coverage:
 
-## Architecture
+- PumpSwap
+- Raydium CPMM
+- Meteora DAMM v2
+- Meteora DLMM
+- precomputed 2-3 leg cycles
+- integer / official-SDK local quoting
+- opportunity sizing
+- cashback-aware effective PnL
+- landing-policy modelling for Direct / Jito / Helius Sender
+- Yellowstone processed account stream
+- slot-complete coherence fences
+- RPC startup bootstrap + buffered catch-up
+- DLMM bin-window fail-closed validation and self-healing discovery
+- paper latency / landing EV telemetry
+
+## Runtime architecture
 
 ```text
-Yellowstone / Geyser
+Yellowstone subscribe
+        |
+        +--> buffer live processed events
+        |
+RPC bootstrap snapshot
+        |
+        +--> explicit accounts
+        +--> all scoped DLMM BinArrays
         |
         v
- Local Pool State
+deterministic bootstrap catch-up
         |
         v
- Precomputed Cycles
+AccountJournal / slot fences
         |
         v
- Marginal Filter
+quote-ready PoolState snapshots
         |
         v
- Exact Local Quote
+ActivePoolStore
         |
         v
- Size Optimizer
+Precomputed Cycles
         |
         v
- Opportunity Queue
+Exact Local Quote + Size Optimizer
         |
         v
- Landing Policy
+Opportunity
         |
         v
- Paper Execution / Metrics
+Landing Policy
+        |
+        v
+Paper telemetry only
 ```
+
+## Running paper Yellowstone mode
+
+Build and run:
+
+```bash
+cargo run --release --features yellowstone --bin paper_yellowstone -- config/paper.json
+```
+
+Required:
+
+```bash
+export HFT_YELLOWSTONE_ENDPOINT="https://..."
+```
+
+Optional Yellowstone authentication:
+
+```bash
+export HFT_YELLOWSTONE_X_TOKEN="..."
+```
+
+Strongly recommended startup bootstrap:
+
+```bash
+export HFT_SOLANA_RPC_URL="https://..."
+# Optional; defaults to 30 seconds.
+export HFT_BOOTSTRAP_TIMEOUT_SECS="30"
+```
+
+When `HFT_SOLANA_RPC_URL` is present, the process:
+
+1. starts the Yellowstone subscription first;
+2. buffers live processed events;
+3. fetches an RPC snapshot for configured accounts;
+4. fetches all DLMM BinArrays belonging to configured LbPairs;
+5. seeds the reactor without running search on partial state;
+6. replays only buffered events that are provably newer than the RPC snapshot;
+7. evaluates the fully caught-up state once;
+8. continues with the live feed.
+
+Same-slot account updates are deliberately rejected during bootstrap catch-up
+because JSON-RPC does not expose account `write_version`; their ordering
+relative to the snapshot is ambiguous.
+
+## DLMM coherence
+
+DLMM is not treated like a CPMM with a fixed set of hot accounts.
+
+The runtime uses:
+
+- immutable Yellowstone owner + memcmp scopes to receive all BinArrays for
+  configured LbPairs;
+- slot-complete fences before publishing bank-scoped DLMM snapshots;
+- fail-closed validation when the currently required bin window is incomplete;
+- automatic registration of newly observed BinArrays for known LbPairs.
+
+Unchanged BinArrays are allowed to remain from older slots. The engine does
+not incorrectly require every array in a DLMM pool to be rewritten together.
+
+## CI
+
+CI requires both:
+
+```bash
+cargo fmt --all -- --check
+cargo test --all-targets --all-features
+```
+
+Official Meteora SDK repositories are pinned to commits so quote parity cannot
+change silently.
 
 ## Safety rule
 
-The initial implementation must not submit live trades. Production execution is gated behind exact quote-conformance tests against official DEX logic and explicit configuration.
-
-## Development
-
-Development will be staged and reviewed in branches/PRs. The first implementation target is a CPMM-only end-to-end prototype, followed by PumpSwap and Raydium adapters, then Meteora DLMM.
+Live transaction submission is intentionally absent. Production execution
+remains gated behind explicit implementation, review, and separate execution
+tests. Paper landing-policy output must not be confused with transaction
+submission.

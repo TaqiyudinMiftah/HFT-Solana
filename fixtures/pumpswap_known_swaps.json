@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "buy",
+    "amount_in": 150000000,
+    "base_reserve": 29040837108752,
+    "raw_quote_reserve": 987024138694,
+    "virtual_quote_reserves": 17604727032,
+    "lp_fee_bps": 20,
+    "protocol_fee_bps": 5,
+    "creator_fee_bps": 50,
+    "cashback_coin": true,
+    "expected_amount_out": 4303138467,
+    "expected_effective_quote": 148883374,
+    "expected_lp_fee": 297767,
+    "expected_protocol_fee": 74442,
+    "expected_creator_fee": 744417
+  },
+  {
+    "kind": "sell",
+    "amount_in": 934650831,
+    "base_reserve": 29024794104522,
+    "raw_quote_reserve": 987580542500,
+    "virtual_quote_reserves": 17604727032,
+    "lp_fee_bps": 20,
+    "protocol_fee_bps": 5,
+    "creator_fee_bps": 50,
+    "cashback_coin": true,
+    "expected_amount_out": 32124981,
+    "expected_effective_quote": 32367740,
+    "expected_lp_fee": 64736,
+    "expected_protocol_fee": 16184,
+    "expected_creator_fee": 161839
+  }
+]
