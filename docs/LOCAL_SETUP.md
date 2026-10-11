@@ -803,3 +803,81 @@ dengan `CARGO_BUILD_JOBS=1` berhasil. Tidak diperlukan perubahan math/dependency
 untuk menyelesaikan kegagalan resource tersebut. Pembersihan direktori penuh
 melalui shell ditolak pemeriksaan otomatis; Cargo hanya membersihkan artifact
 paket aplikasi. Config, credential, dependency builds, dan source tetap tersimpan.
+
+## Pemilihan berdasarkan aktivitas account - 11 Oktober 2026
+
+Discovery berikutnya menghasilkan 30 kandidat pada delapan pasangan mint.
+Sepuluh pool native yang terhubung memenuhi pemeriksaan owner/layout/mint dan
+activation awal. Mode baru mengukur account pool dan kedua vault, bukan hanya
+volume historis dari indeks. Slot yang meningkat dengan payload identik tidak
+menaikkan peringkat; duplicate/old contexts tidak mengganti baseline.
+
+Satu pengukuran 13 sampel tidak menemukan perubahan dan berhenti tanpa config.
+Pengukuran berikutnya diperpanjang menjadi 37 sampel dengan jeda lima detik:
+188,02 detik, 37 request RPC, context `455570890`..`455571761`. Dua pool
+Raydium CPMM masing-masing berubah pada dua dari 36 interval yang dibandingkan;
+delapan pool lain tidak berubah. Config terpilih divalidasi kembali pada satu
+context `455571761`: dua pool, dua mint, dua cycle berarah, 10 dependency accounts.
+
+Pool terpilih adalah `H5gndJaYQn59VaNd7iPnW4KS1kisk8sG4UMeZAtjX4WZ` dan
+`73frby6kZ8NwxmmBgdJ8sXmgsXbi3rAv6vuDAXh1We9x`, pada pasangan WSOL dan
+`A3vBwL3Pd6nkBqVo87D6TLWYG4ekWuDeqCoLFeyvRMcb`. Semua alamat berasal dari
+state yang diverifikasi. Config lama tetap tersedia. Search/landing settings,
+raw-unit bounds, dan minimum effective profit tidak berubah.
+
+Perintah yang dijalankan setelah memuat provider lokal:
+
+```powershell
+. .\scripts\Import-PaperProvider.ps1
+.\target\release\examples\paper_discover.exe target\local-setup\paper-active-candidates-20261011-142619.json config\paper.local.json config\paper.active-observed-20261011-143618.local.json 15 --activity-samples 37 --activity-interval-secs 5 --activity-report target\local-setup\paper-activity-observed-20261011-143618.json
+.\target\release\examples\paper_bootstrap.exe config\paper.active-observed-20261011-143618.local.json --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report target\local-setup\paper-active-observed-20261011-143618.json
+```
+
+Pemeriksaan tambahan atas 30 account pool/vault menghasilkan payload identik
+dari RPC terkonfigurasi (context `455571733`) dan RPC publik mainnet-beta
+(`455571735`). Ini adalah pemeriksaan satu waktu pada context independen,
+bukan bukti bahwa provider tidak pernah terlambat atau berbeda fork.
+
+Boundary tanpa aktivitas juga diperiksa memakai server RPC lokal di loopback:
+payload publik tetap, context slot meningkat, tiga sampel. Program mencatat
+dua interval per pool, nol perubahan, menulis report
+`status=no_qualified_active_pair`, exit 1, dan tidak membuat config. Empat
+request server seluruhnya `getMultipleAccounts`. Regresi unit mencakup vault
+changes, duplicate/old contexts, partial/mixed contexts, ordering akun, ranking
+fraction, quiet-pair exclusion, static counterpart, dan CLI request bounds.
+
+Verifikasi source: format lulus, **126 tes Rust dan tiga tes Python lulus**,
+release Yellowstone binary dan examples lulus tanpa warning. Build release
+terakhir tercatat 10,98 detik dengan satu Cargo job. Ini bukan benchmark hot path.
+Pemindaian 126 file Git index tidak menemukan token/RPC URL provider. Config,
+laporan aktivitas, log, fixture pemeriksaan lokal, dan kredensial tetap di luar Git.
+
+Pengamatan paper config terpilih selesai dengan exit 0 dalam 613,72 detik.
+Semua 120 snapshot diterima, dari context `455571763` sampai `455574577`.
+240 cycle state vectors dievaluasi, semuanya ditolak pada probe nonpositif;
+240 duplicate adalah dedupe dalam pipeline. Probe dan dua ukuran tambahan
+menghasilkan 720 quote, seluruhnya negatif. Quote failures, skipped samples,
+probe/grid disagreements, opportunities, dan transaksi terkirim semuanya nol.
+Landing selected/rejected 0/0 karena tidak ada opportunity yang masuk policy.
+
+| Raw input WSOL | SOL | Effective profit terbaik sebelum biaya eksekusi |
+| ---: | ---: | ---: |
+| 100000 | 0,0001 | -170 lamport |
+| 1000000 | 0,001 | -1768 lamport |
+| 10000000 | 0,01 | -24781 lamport |
+
+Dari 119 interval setelah baseline, 10 berubah dan 109 tidak berubah.
+Run sebelumnya dengan 10 pool memiliki 13 interval perubahan. Pemilihan dari
+aktivitas teramati tidak membuktikan aktivitas akan berlanjut: sampling pendek
+bisa melewatkan burst, dan pasar/semesta pool berbeda antara kedua run.
+Untuk dua cycle yang sama, profit terbaik pada input 100.000 sebelumnya
+adalah -1.001 lamport, kini -170 lamport. Quote lebih dekat ke titik impas,
+tetapi masih belum positif.
+Ini bukan klaim peningkatan performa terkontrol atau realized PnL.
+
+Report akhir: `target/local-setup/paper-active-observed-20261011-143618.json`;
+log dengan basename yang sama berakhiran `.log`. Report aktivitas:
+`target/local-setup/paper-activity-observed-20261011-143618.json`.
+Untuk menjalankan ulang, gunakan path baru pada panduan
+[PAPER_DISCOVERY.md](PAPER_DISCOVERY.md); output lama tidak ditimpa.
+Yellowstone tetap belum diuji dan membutuhkan akses provider yang kompatibel.
