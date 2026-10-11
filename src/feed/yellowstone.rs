@@ -1,16 +1,19 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use futures::StreamExt;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
-use yellowstone_grpc_client::{GeyserGrpcClient, ReconnectEvent};
+use yellowstone_grpc_client::{
+    ClientTlsConfig, GeyserGrpcClient, GeyserGrpcClientError, ReconnectEvent,
+};
 use yellowstone_grpc_proto::prelude::{
     subscribe_request_filter_accounts_filter::Filter as AccountFilterOneof,
     subscribe_request_filter_accounts_filter_memcmp::Data as MemcmpData,
     subscribe_update::UpdateOneof, CommitmentLevel, SlotStatus, SubscribeRequest,
     SubscribeRequestFilterAccounts, SubscribeRequestFilterAccountsFilter,
-    SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterSlots,
+    SubscribeRequestFilterAccountsFilterMemcmp, SubscribeRequestFilterSlots, SubscribeUpdateSlot,
 };
+use yellowstone_grpc_proto::tonic::Code;
 
 use super::{AccountUpdate, BankIdentity, FeedEvent};
 
@@ -60,6 +63,30 @@ pub enum YellowstoneFeedError {
     InvalidPubkey,
     #[error("paper-feed receiver closed")]
     ReceiverClosed,
+}
+
+/// Explain provider failures without retaining server messages or credential URLs.
+pub fn provider_error_summary(error: &GeyserGrpcClientError) -> String {
+    match error {
+        GeyserGrpcClientError::TransportError(_) => {
+            "transport/TLS failure; verify host, port, certificate roots, and network".to_owned()
+        }
+        GeyserGrpcClientError::TonicStatus(status) => {
+            let action = match status.code() {
+                Code::Unimplemented => "method unavailable; verify the Yellowstone gRPC endpoint and streaming access with the provider; use paper_bootstrap for RPC-only observations",
+                Code::Unauthenticated => "authentication rejected; verify the provider's x-token locally",
+                Code::PermissionDenied => "access denied; verify application streaming permissions with the provider",
+                Code::ResourceExhausted => "provider quota exhausted; reduce subscriptions or request rate",
+                Code::Unavailable | Code::DeadlineExceeded => "service unavailable or timed out; check provider status and network",
+                Code::FailedPrecondition => "provider/client recovery requirements not satisfied; verify bank metadata and replay support",
+                _ => "provider request failed; verify subscription filters and protocol compatibility",
+            };
+            format!(
+                "gRPC {:?}: {action} (provider details omitted)",
+                status.code()
+            )
+        }
+    }
 }
 
 pub fn build_subscribe_request(config: &YellowstoneConfig) -> SubscribeRequest {
@@ -120,6 +147,22 @@ fn array32(bytes: &[u8]) -> Result<[u8; 32], YellowstoneFeedError> {
         .map_err(|_| YellowstoneFeedError::InvalidPubkey)
 }
 
+/// Translate a processed bank's account-delivery fence without inventing identity.
+pub fn slot_fence_event(generation: u64, update: SubscribeUpdateSlot) -> Option<FeedEvent> {
+    // Geyser emits PROCESSED after account notifications. COMPLETED refers
+    // to received shreds and does not carry a bank id in Yellowstone's schema.
+    if SlotStatus::try_from(update.status).ok()? != SlotStatus::SlotProcessed {
+        return None;
+    }
+    Some(FeedEvent::SlotComplete {
+        bank: BankIdentity {
+            generation,
+            slot: update.slot,
+            bank_id: update.bank_id?,
+        },
+    })
+}
+
 pub async fn run_account_feed(
     config: YellowstoneConfig,
     output: mpsc::Sender<FeedEvent>,
@@ -141,21 +184,42 @@ async fn run_account_feed_inner(
     ready: Option<oneshot::Sender<()>>,
 ) -> Result<(), YellowstoneFeedError> {
     let request = build_subscribe_request(&config);
+    let startup_timeout = Duration::from_secs(15);
+    let https = config
+        .endpoint
+        .split_once(':')
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("https"));
 
-    let builder = GeyserGrpcClient::build_from_shared(config.endpoint)
-        .map_err(|error| YellowstoneFeedError::Client(error.to_string()))?
+    let mut builder = GeyserGrpcClient::build_from_shared(config.endpoint)
+        .map_err(|_| YellowstoneFeedError::Client("invalid endpoint URI".to_owned()))?
         .x_token(config.x_token)
-        .map_err(|error| YellowstoneFeedError::Client(error.to_string()))?;
+        .map_err(|_| YellowstoneFeedError::Client("invalid x-token metadata".to_owned()))?
+        .connect_timeout(startup_timeout);
+    if https {
+        builder = builder
+            .tls_config(ClientTlsConfig::new().with_native_roots())
+            .map_err(|_| {
+                YellowstoneFeedError::Client("TLS configuration failed; details omitted".to_owned())
+            })?;
+    }
 
-    let mut client = builder
-        .connect()
+    let mut client = tokio::time::timeout(startup_timeout, builder.connect())
         .await
-        .map_err(|error| YellowstoneFeedError::Connect(error.to_string()))?;
+        .map_err(|_| YellowstoneFeedError::Connect("connection timed out after 15s".to_owned()))?
+        .map_err(|_| {
+            YellowstoneFeedError::Connect(
+                "transport/TLS failure; verify host, port, certificate roots, and network"
+                    .to_owned(),
+            )
+        })?;
 
-    let (_sink, mut stream) = client
-        .subscribe_with_reconnect(Some(request))
-        .await
-        .map_err(|error| YellowstoneFeedError::Subscribe(error.to_string()))?;
+    let (_sink, mut stream) = tokio::time::timeout(
+        startup_timeout,
+        client.subscribe_with_reconnect(Some(request)),
+    )
+    .await
+    .map_err(|_| YellowstoneFeedError::Subscribe("subscription timed out after 15s".to_owned()))?
+    .map_err(|error| YellowstoneFeedError::Subscribe(provider_error_summary(&error)))?;
 
     if let Some(ready) = ready {
         let _ = ready.send(());
@@ -182,23 +246,10 @@ async fn run_account_feed_inner(
                         })
                     }
                     Some(UpdateOneof::Slot(slot_update)) => {
-                        let Ok(status) = SlotStatus::try_from(slot_update.status) else {
+                        let Some(event) = slot_fence_event(generation, slot_update) else {
                             continue;
                         };
-                        if status != SlotStatus::SlotCompleted {
-                            continue;
-                        }
-                        let Some(bank_id) = slot_update.bank_id else {
-                            continue;
-                        };
-
-                        FeedEvent::SlotComplete {
-                            bank: BankIdentity {
-                                generation,
-                                slot: slot_update.slot,
-                                bank_id,
-                            },
-                        }
+                        event
                     }
                     _ => continue,
                 };
@@ -227,7 +278,9 @@ async fn run_account_feed_inner(
                     .map_err(|_| YellowstoneFeedError::ReceiverClosed)?;
             }
             Err(status) => {
-                return Err(YellowstoneFeedError::Stream(status.to_string()));
+                return Err(YellowstoneFeedError::Stream(provider_error_summary(
+                    &GeyserGrpcClientError::TonicStatus(status),
+                )));
             }
         }
     }

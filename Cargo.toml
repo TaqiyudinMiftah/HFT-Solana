@@ -48,9 +48,13 @@ solana-pubkey = { version = "3.0.0", features = ["curve25519", "sha2"] }
 solana-sdk-v2 = { package = "solana-sdk", version = "2.1.0", optional = true }
 spl-token-2022-interface = "3.1"
 thiserror = "2"
-tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "sync", "net", "io-util"], optional = true }
 yellowstone-grpc-client = { version = "14.0.1", optional = true }
 yellowstone-grpc-proto = { version = "13.0.0", optional = true }
+
+[patch.crates-io]
+# Published 14.0.1 imports UnixStream unconditionally; preserve its API on Windows.
+yellowstone-grpc-client = { path = "vendor/yellowstone-grpc-client" }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -61,3 +65,13 @@ serde_json = "1"
 name = "calibrate_landing"
 path = "src/bin/calibrate_landing.rs"
 required-features = ["calibration"]
+
+[[example]]
+name = "paper_bootstrap"
+path = "examples/paper_bootstrap.rs"
+required-features = ["yellowstone"]
+
+[[example]]
+name = "yellowstone_probe"
+path = "examples/yellowstone_probe.rs"
+required-features = ["yellowstone"]

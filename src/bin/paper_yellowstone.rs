@@ -108,12 +108,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::select! {
         ready = feed_ready_rx => {
-            ready.map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::BrokenPipe,
+            if ready.is_err() {
+                // A failed feed drops the readiness sender. Preserve its actual
+                // error instead of racing it with a generic BrokenPipe message.
+                feed_task.await??;
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
                     "Yellowstone feed ended before subscription readiness",
-                )
-            })?;
+                ).into());
+            }
         }
         feed_result = &mut feed_task => {
             match feed_result? {
@@ -167,7 +170,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "RPC bootstrap exceeded HFT_BOOTSTRAP_TIMEOUT_SECS={bootstrap_timeout_secs}"
                 ),
             )
-        })??;
+        })?
+        .map_err(|_| {
+            io::Error::other(
+                "RPC bootstrap failed; verify endpoint, quota, and account scope (provider details omitted)",
+            )
+        })?;
         let bootstrap_rpc_elapsed_ms = bootstrap_started.elapsed().as_millis();
 
         if feed_task.is_finished() {

@@ -164,7 +164,51 @@ fn dlmm_waits_for_slot_complete_and_allows_untouched_old_bins() {
         ))
         .is_empty());
 
-    let completed = reactor.process(FeedEvent::SlotComplete { bank: bank.clone() });
+    #[cfg(feature = "yellowstone")]
+    let fence = {
+        use hft_solana::feed::yellowstone::slot_fence_event;
+        use yellowstone_grpc_proto::prelude::{SlotStatus, SubscribeUpdateSlot};
+
+        // COMPLETED describes received shreds and has no bank identity. It
+        // must not release the partially updated DLMM snapshot.
+        assert!(slot_fence_event(
+            bank.generation,
+            SubscribeUpdateSlot {
+                slot: bank.slot,
+                status: SlotStatus::SlotCompleted as i32,
+                bank_id: None,
+                ..Default::default()
+            },
+        )
+        .is_none());
+        assert!(slot_fence_event(
+            bank.generation,
+            SubscribeUpdateSlot {
+                slot: bank.slot,
+                status: SlotStatus::SlotProcessed as i32,
+                bank_id: None,
+                ..Default::default()
+            },
+        )
+        .is_none());
+
+        // The account writes above can be quoted only after the matching
+        // processed bank arrives through the real protobuf adapter.
+        slot_fence_event(
+            bank.generation,
+            SubscribeUpdateSlot {
+                slot: bank.slot,
+                status: SlotStatus::SlotProcessed as i32,
+                bank_id: Some(bank.bank_id),
+                ..Default::default()
+            },
+        )
+        .expect("processed bank must release its account-delivery fence")
+    };
+    #[cfg(not(feature = "yellowstone"))]
+    let fence = FeedEvent::SlotComplete { bank: bank.clone() };
+
+    let completed = reactor.process(fence);
     assert_eq!(completed.len(), 1);
 
     let state = match &completed[0] {
