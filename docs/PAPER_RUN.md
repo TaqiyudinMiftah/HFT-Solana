@@ -6,6 +6,92 @@ fork-aware pool state, evaluates preconfigured cycles, and prints opportunities.
 
 It does **not** contain a signer or live transaction sender.
 
+## Check RPC bootstrap without Yellowstone
+
+After replacing placeholders with verified account addresses, one read-only
+bootstrap and local quote pass can run with only `HFT_SOLANA_RPC_URL`:
+
+```bash
+cargo run --release --locked --features yellowstone --example paper_bootstrap -- config/paper.local.json
+```
+
+The `yellowstone` feature enables the existing RPC/decoder dependencies; this
+example does not open a gRPC subscription. By default it exits after checking each pool
+is active and quoting each cycle at `minimum_probe`. It reuses the runtime's
+config loader, bootstrap reconciliation, and integer quote math. Fee/time
+models use the local clock, as in the paper runtime. Output is a snapshot
+prediction, not transaction simulation or realized PnL. Errors from the RPC
+provider are suppressed because they may contain a credential-bearing URL.
+
+If streaming is unavailable, observe a bounded sequence of independent RPC
+snapshots with the same example:
+
+```bash
+cargo run --release --locked --features yellowstone --example paper_bootstrap -- config/paper.local.json --samples 60 --interval-secs 5
+```
+
+Each accepted sample builds a fresh pipeline from a single `getMultipleAccounts`
+response. The example supports at most 100 explicit accounts and rejects DLMM
+discovery, which requires additional RPC responses. Mixed contexts, incomplete
+snapshots, and non-startup events are rejected; duplicate or older context slots
+are skipped. It waits after each completed request and never sends a catch-up
+burst. RPC errors stop the run; there is no unbounded retry loop in the example.
+
+`PAPER_RPC_OPPORTUNITY` and `PAPER_RPC_LANDING` label per-snapshot predictions.
+Observations are not deduplicated across newer snapshots, and RPC does not expose
+account write versions or bank ancestry. This mode samples state rather than
+measuring Yellowstone feed latency or reconstructing processed forks. Provider
+RPC quotas still apply. Landing probabilities remain demonstration parameters
+unless calibrated from labeled outcomes. No transaction is submitted.
+When landing is configured, all cycles must start in WSOL so lamport costs and
+raw profit use the same units; otherwise remove `landing` for quote observations.
+
+To expand the pool universe, inspect rejection reasons, and quote additional
+sizes without changing the search filter, follow [PAPER_DISCOVERY.md](PAPER_DISCOVERY.md).
+For example:
+
+```bash
+cargo run --release --locked --features yellowstone --example paper_bootstrap -- config/paper.expanded.local.json --samples 120 --interval-secs 5 --diagnostic-sizes 100000,1000000,10000000 --report target/local-setup/new-paper-report.json
+```
+
+`PAPER_SEARCH_STATS` counts actual engine decisions. Additional-size diagnostics
+remain separate from emitted opportunities; a positive diagnostic does not
+bypass the probe filter. Output/report paths must be new files.
+
+## Diagnose Yellowstone access
+
+After loading the provider environment, check the subscription method with a
+bounded, slot-only Rust probe:
+
+```bash
+cargo run --release --locked --features yellowstone --example yellowstone_probe
+```
+
+The probe checks TLS, `Subscribe`, and a processed slot carrying `bank_id`;
+it does not verify account ordering or replay/reconnect compatibility. Connection,
+subscription, and the first processed-slot wait each have a 10-second timeout.
+Server messages and credential URLs are omitted from errors.
+
+`Unimplemented` means the method is unavailable through the tested endpoint/access.
+Verify streaming activation and the gRPC URL with the provider; changing DEX math
+or using a JSON-RPC URL will not resolve it. `Unauthenticated` concerns credentials,
+`PermissionDenied` concerns access, and `ResourceExhausted` concerns quota.
+The production feed limits connection and initial subscription to 15 seconds each;
+HTTPS endpoints explicitly enable TLS with native certificate roots; plaintext
+HTTP remains available for local test servers. Certificate verification stays enabled.
+The established stream has no artificial lifetime limit. A startup failure preserves
+the feed error rather than racing it with a generic readiness error.
+
+For Windows environment and credential loading, see [LOCAL_SETUP.md](LOCAL_SETUP.md).
+
+## Bank delivery fence
+
+The adapter releases a DLMM snapshot only on the matching bank-scoped
+`SLOT_PROCESSED` marker, after account notifications. `SLOT_COMPLETED` is a
+shred-reception status and does not identify a bank. Updates without a bank id
+cannot release this fence. Providers must preserve this account/processed
+ordering and support the bank metadata/recovery used by the client.
+
 ## Build
 
 ```bash

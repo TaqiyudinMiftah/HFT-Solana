@@ -1,4 +1,6 @@
 /target
+/config/paper.local.json
+/config/paper.*.local.json
 .env
 .env.*
 !.env.example
@@ -6,3 +8,4 @@
 .idea/
 .vscode/
 .DS_Store
+__pycache__/

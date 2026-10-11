@@ -67,6 +67,14 @@ Paper telemetry only
 
 ## Running paper Yellowstone mode
 
+For native Windows PowerShell setup, local verification results, and provider
+requirements, see [Local setup](docs/LOCAL_SETUP.md).
+
+If Yellowstone access is unavailable, [PAPER_RUN.md](docs/PAPER_RUN.md) describes
+bounded RPC snapshot observations and a slot-only provider diagnostic probe.
+For validated pool discovery, directed cycle generation, rejection counters,
+and size-grid diagnostics, see [PAPER_DISCOVERY.md](docs/PAPER_DISCOVERY.md).
+
 Build and run:
 
 ```bash

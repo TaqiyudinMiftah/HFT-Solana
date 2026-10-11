@@ -131,3 +131,51 @@ fn graph_index_deduplicates_cycle_per_pool() {
     assert_eq!(graph.pool_to_cycles[0].as_ref(), &[0]);
     assert_eq!(graph.pool_to_cycles[1].as_ref(), &[0]);
 }
+
+#[test]
+fn rejected_cycle_is_counted_once_for_a_shared_state_vector() {
+    let mut store = ActivePoolStore::new(2, 2);
+    for pool_id in 0..2 {
+        store.apply(ReactorOutput::PoolUpdated {
+            pool_id,
+            state: pool_state(1, 10_000_000, 20_000_000),
+        });
+    }
+    let mut engine = OpportunityEngine::new(graph(), vec![config()]);
+    assert!(engine.process_pool(0, &store, 100).is_empty());
+    assert!(engine.process_pool(1, &store, 101).is_empty());
+    let stats = engine.stats();
+    assert_eq!(stats.evaluated, 1);
+    assert_eq!(stats.nonpositive_probe, 1);
+    assert_eq!(stats.duplicate_snapshot, 1);
+    assert_eq!(stats.opportunities, 0);
+}
+
+#[test]
+fn minimum_profit_rejection_is_distinct_from_nonpositive_probe() {
+    let mut store = ActivePoolStore::new(2, 2);
+    store.apply(ReactorOutput::PoolUpdated {
+        pool_id: 0,
+        state: pool_state(1, 10_000_000, 22_000_000),
+    });
+    store.apply(ReactorOutput::PoolUpdated {
+        pool_id: 1,
+        state: pool_state(1, 10_000_000, 20_000_000),
+    });
+    let mut settings = config();
+    settings.minimum_effective_profit = i128::MAX;
+    let mut engine = OpportunityEngine::new(graph(), vec![settings]);
+    assert!(engine.process_pool(0, &store, 100).is_empty());
+    assert_eq!(engine.stats().below_minimum_profit, 1);
+    assert_eq!(engine.stats().nonpositive_probe, 0);
+    assert_eq!(engine.stats().opportunities, 0);
+}
+
+#[test]
+fn unavailable_pool_does_not_count_as_an_evaluated_quote() {
+    let store = ActivePoolStore::new(2, 2);
+    let mut engine = OpportunityEngine::new(graph(), vec![config()]);
+    assert!(engine.process_pool(0, &store, 100).is_empty());
+    assert_eq!(engine.stats().snapshot_unavailable, 1);
+    assert_eq!(engine.stats().evaluated, 0);
+}
